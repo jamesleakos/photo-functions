@@ -1,6 +1,6 @@
 # Photo Library Manager
 
-A collection of Python tools for managing your photo library.
+A collection of Python tools for managing my photo library.
 
 ## Installation
 
@@ -46,5 +46,3 @@ python src/mov_cleaner.py [directory]
 
 - Recursive folder processing
 - Backup creation for safety
-- Progress bars for long operations
-- Detailed error reporting
