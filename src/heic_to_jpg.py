@@ -3,8 +3,8 @@
 import os
 from pathlib import Path
 from tqdm import tqdm
-from PIL import Image
-from pillow_heif import register_heif_opener
+from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener, HeifImagePlugin
 import subprocess
 import json
 from datetime import datetime
@@ -13,7 +13,7 @@ def get_heic_metadata(file_path):
     """Get all metadata from HEIC file using exiftool."""
     try:
         result = subprocess.run(
-            ['exiftool', '-json', file_path],
+            ['exiftool', '-json', '-a', '-b', file_path],
             capture_output=True, text=True
         )
         if result.returncode != 0:
@@ -26,9 +26,12 @@ def get_heic_metadata(file_path):
 def copy_metadata_to_jpg(heic_path, jpg_path):
     """Copy all metadata from HEIC to JPG using exiftool."""
     try:
-        # Copy all metadata
+        # Copy all metadata except orientation since we've already applied it
+        # Use -a flag to preserve all edits and adjustments
         subprocess.run(
-            ['exiftool', '-TagsFromFile', str(heic_path), str(jpg_path)],
+            ['exiftool', '-TagsFromFile', str(heic_path),
+             '-all:all', '-orientation#=1', '-overwrite_original',
+             '-a', str(jpg_path)],
             check=True, capture_output=True
         )
         
@@ -42,8 +45,22 @@ def copy_metadata_to_jpg(heic_path, jpg_path):
         print(f"Error copying metadata: {str(e)}")
         return False
 
+def has_edits(heic_path):
+    """Check if the HEIC file has been edited."""
+    try:
+        result = subprocess.run(
+            ['exiftool', '-json', '-AdjustmentType', '-HasCrop', str(heic_path)],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)[0]
+            return 'AdjustmentType' in data or 'HasCrop' in data
+        return False
+    except:
+        return False
+
 def convert_heic_to_jpg(folder_path, delete_original=False):
-    """Convert all HEIC files in a folder to JPG format, preserving metadata."""
+    """Convert all HEIC files in a folder to JPG format, preserving metadata, orientation, and edits."""
     # Register HEIF opener with Pillow
     register_heif_opener()
 
@@ -59,6 +76,8 @@ def convert_heic_to_jpg(folder_path, delete_original=False):
 
     print(f"Found {len(heic_files)} HEIC files. Converting...")
     converted_count = 0
+    edited_count = 0
+    original_count = 0
     errors = []
 
     for heic_file in tqdm(heic_files):
@@ -66,12 +85,36 @@ def convert_heic_to_jpg(folder_path, delete_original=False):
             # Create output path
             jpg_path = heic_file.with_suffix('.jpg')
             
-            # Convert HEIC to JPG
-            with Image.open(heic_file) as img:
-                # Convert and save as JPG with high quality
-                img.convert('RGB').save(jpg_path, 'JPEG', quality=95)
+            # Check if file has edits
+            has_iphone_edits = has_edits(heic_file)
             
-            # Copy all metadata from HEIC to JPG
+            # First, try to extract the edited version if it exists
+            if has_iphone_edits:
+                print(f"\nProcessing edited photo: {heic_file.name}")
+                subprocess.run(
+                    ['exiftool', '-b', '-PreviewImage', str(heic_file)],
+                    stdout=open(jpg_path, 'wb'),
+                    check=False  # Don't raise error if no preview exists
+                )
+            
+            # If no preview image or no edits, convert normally
+            if not os.path.exists(jpg_path) or os.path.getsize(jpg_path) == 0:
+                if has_iphone_edits:
+                    print(f"No preview image found for edited photo: {heic_file.name}, converting original")
+                else:
+                    print(f"\nProcessing original photo: {heic_file.name}")
+                with Image.open(heic_file) as img:
+                    # Apply orientation based on EXIF
+                    img = ImageOps.exif_transpose(img)
+                    
+                    # Convert and save as JPG with high quality
+                    img.convert('RGB').save(jpg_path, 'JPEG', quality=95)
+                original_count += 1
+            else:
+                edited_count += 1
+            
+            # Copy all metadata from HEIC to JPG, but set orientation to normal
+            # since we've already applied the rotation
             if copy_metadata_to_jpg(heic_file, jpg_path):
                 converted_count += 1
                 
@@ -87,7 +130,9 @@ def convert_heic_to_jpg(folder_path, delete_original=False):
 
     # Print summary
     print(f"\nConversion complete!")
-    print(f"Successfully converted: {converted_count} files")
+    print(f"Total converted: {converted_count} files")
+    print(f"  - With iPhone edits: {edited_count}")
+    print(f"  - Original photos: {original_count}")
     if errors:
         print(f"Failed to convert: {len(errors)} files")
         print("\nErrors:")

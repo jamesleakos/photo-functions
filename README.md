@@ -16,20 +16,16 @@ You'll also need ExifTool installed:
 
 ## Tools
 
-### Photo Replacer
+### MOV Cleaner
 
-Replaces lower resolution phone photos with matching camera photos.
+Deletes .MOV files that have matching .HEIC files (starting with IMG\_).
 
 ```bash
-python src/photo_replacer.py [phone_folder] [camera_folder]
+python src/mov_cleaner.py [directory]
 ```
 
-### Photo Merger
-
-Merges photos from source to target folder, avoiding duplicates.
-
 ```bash
-python src/photo_merger.py [source_folder] [target_folder]
+python src/mov_cleaner.py photos/phone
 ```
 
 ### HEIC to JPG Converter
@@ -40,12 +36,32 @@ Converts HEIC files to JPG format.
 python src/heic_to_jpg.py [folder_path] [--delete-original]
 ```
 
-### MOV Cleaner
+```bash
+python src/heic_to_jpg.py photos/phone --delete-original
+```
 
-Deletes .MOV files that have matching .HEIC files (starting with IMG\_).
+### Photo Replacer
+
+Replaces lower resolution phone photos with matching camera photos.
 
 ```bash
-python src/mov_cleaner.py [directory]
+python src/photo_replacer.py [phone_folder] [camera_folder]
+```
+
+```bash
+python src/photo_replacer.py photos/phone photos/camera
+```
+
+### Photo Merger
+
+Merges photos from source to target folder, avoiding duplicates.
+
+```bash
+python src/photo_merger.py [source_folder] [target_folder]
+```
+
+```bash
+python src/photo_merger.py photos/camera photos/phone
 ```
 
 ### Date Fixer
@@ -54,6 +70,10 @@ Sets the file creation date to match the content creation date from metadata. Wo
 
 ```bash
 python src/fix_dates.py [folder_path]
+```
+
+```bash
+python src/fix_dates.py photos/phone
 ```
 
 ## Features
