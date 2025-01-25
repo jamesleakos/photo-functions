@@ -5,9 +5,45 @@ from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
 from pillow_heif import register_heif_opener
+import subprocess
+import json
+from datetime import datetime
+
+def get_heic_metadata(file_path):
+    """Get all metadata from HEIC file using exiftool."""
+    try:
+        result = subprocess.run(
+            ['exiftool', '-json', file_path],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)[0]
+    except Exception as e:
+        print(f"Error reading metadata: {str(e)}")
+        return None
+
+def copy_metadata_to_jpg(heic_path, jpg_path):
+    """Copy all metadata from HEIC to JPG using exiftool."""
+    try:
+        # Copy all metadata
+        subprocess.run(
+            ['exiftool', '-TagsFromFile', str(heic_path), str(jpg_path)],
+            check=True, capture_output=True
+        )
+        
+        # Remove the backup file created by exiftool
+        backup_file = Path(str(jpg_path) + '_original')
+        if backup_file.exists():
+            backup_file.unlink()
+            
+        return True
+    except Exception as e:
+        print(f"Error copying metadata: {str(e)}")
+        return False
 
 def convert_heic_to_jpg(folder_path, delete_original=False):
-    """Convert all HEIC files in a folder to JPG format."""
+    """Convert all HEIC files in a folder to JPG format, preserving metadata."""
     # Register HEIF opener with Pillow
     register_heif_opener()
 
@@ -27,18 +63,23 @@ def convert_heic_to_jpg(folder_path, delete_original=False):
 
     for heic_file in tqdm(heic_files):
         try:
-            # Open HEIC file
+            # Create output path
+            jpg_path = heic_file.with_suffix('.jpg')
+            
+            # Convert HEIC to JPG
             with Image.open(heic_file) as img:
-                # Create output path
-                jpg_path = heic_file.with_suffix('.jpg')
-                
-                # Convert and save as JPG
+                # Convert and save as JPG with high quality
                 img.convert('RGB').save(jpg_path, 'JPEG', quality=95)
+            
+            # Copy all metadata from HEIC to JPG
+            if copy_metadata_to_jpg(heic_file, jpg_path):
                 converted_count += 1
-
-                # Delete original if requested
+                
+                # Delete original if requested and conversion was successful
                 if delete_original:
                     os.remove(heic_file)
+            else:
+                errors.append((heic_file, "Failed to copy metadata"))
 
         except Exception as e:
             errors.append((heic_file, str(e)))

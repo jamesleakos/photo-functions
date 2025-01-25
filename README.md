@@ -1,12 +1,18 @@
 # Photo Library Manager
 
-A collection of Python tools for managing my photo library.
+A collection of Python tools for managing your photo library.
 
 ## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
+
+You'll also need ExifTool installed:
+
+- macOS: `brew install exiftool`
+- Linux: `sudo apt-get install exiftool`
+- Windows: Download from https://exiftool.org
 
 ## Tools
 
@@ -40,6 +46,14 @@ Deletes .MOV files that have matching .HEIC files (starting with IMG\_).
 
 ```bash
 python src/mov_cleaner.py [directory]
+```
+
+### Date Fixer
+
+Sets the file creation date to match the content creation date from metadata. Works with most file types that contain creation date metadata (photos, videos, documents, etc.).
+
+```bash
+python src/fix_dates.py [folder_path]
 ```
 
 ## Features

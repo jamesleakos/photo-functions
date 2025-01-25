@@ -1,7 +1,10 @@
+#!/usr/bin/env python3
+
 import os
 import shutil
 from pathlib import Path
 from tqdm import tqdm
+import subprocess
 
 class PhotoReplacer:
     def __init__(self, phone_folder: str, camera_folder: str):
@@ -26,7 +29,7 @@ class PhotoReplacer:
         
         for root, _, files in os.walk(folder):
             for file in files:
-                if Path(file).suffix.lower() in {'.jpg', '.jpeg'}:
+                if Path(file).suffix.lower() in {'.jpg', '.jpeg', '.heic'}:
                     image_files.append(Path(root) / file)
         
         return image_files
@@ -50,8 +53,32 @@ class PhotoReplacer:
         
         return matches
 
+    def copy_file_with_metadata(self, source_path, target_path, original_path=None):
+        """
+        Copy file and preserve all metadata.
+        If original_path is provided, preserve its metadata instead of source_path's metadata.
+        """
+        try:
+            # First, copy the file with shutil to handle the data
+            shutil.copy2(source_path, target_path)
+            
+            # Then use exiftool to copy all metadata
+            # If original_path is provided, use its metadata
+            metadata_source = str(original_path if original_path else source_path)
+            
+            subprocess.run(
+                ['exiftool', '-TagsFromFile', metadata_source, 
+                 '-all:all', '-overwrite_original', str(target_path)],
+                check=True, capture_output=True
+            )
+            
+            return True
+        except Exception as e:
+            print(f"Error copying file and metadata: {str(e)}")
+            return False
+
     def replace_photos(self):
-        """Replace lower resolution phone photos with their camera counterparts."""
+        """Replace lower resolution phone photos with their camera counterparts while preserving metadata."""
         matches = self.find_matching_photos()
         
         if not matches:
@@ -67,20 +94,36 @@ class PhotoReplacer:
         
         # Replace photos
         replaced_count = 0
+        errors = []
+        
         for phone_img, camera_img in tqdm(matches, desc="Replacing photos"):
             try:
-                # Create backup
+                # Create backup path
                 backup_path = backup_folder / phone_img.name
-                shutil.copy2(phone_img, backup_path)
                 
-                # Replace with camera version
-                shutil.copy2(camera_img, phone_img)
-                replaced_count += 1
+                # First backup the phone photo with its metadata
+                if not self.copy_file_with_metadata(phone_img, backup_path):
+                    errors.append((phone_img, "Failed to create backup"))
+                    continue
+                
+                # Replace with camera version while preserving phone photo's metadata
+                if self.copy_file_with_metadata(camera_img, phone_img, original_path=phone_img):
+                    replaced_count += 1
+                else:
+                    errors.append((phone_img, "Failed to replace with camera version"))
                 
             except Exception as e:
-                print(f"Error replacing {phone_img.name}: {str(e)}")
+                errors.append((phone_img, str(e)))
+                continue
         
-        print(f"\nReplacement complete! {replaced_count} photos were replaced.")
+        # Print summary
+        print(f"\nReplacement complete!")
+        print(f"Successfully replaced: {replaced_count} photos")
+        if errors:
+            print(f"Failed to replace: {len(errors)} files")
+            print("\nErrors:")
+            for file, error in errors:
+                print(f"{file}: {error}")
 
 def mov_deleter(directory_path):
     """
