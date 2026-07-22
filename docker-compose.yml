@@ -1,0 +1,18 @@
+services:
+  photo-manager:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      PHOTO_DATA_DIR: /data
+      PHOTO_DATABASE_PATH: /data/catalog.db
+      PHOTO_THUMBNAIL_DIR: /data/thumbnails
+      PHOTO_UPLOAD_DIR: /data/uploads
+      PHOTO_IPHONE_EXPORT_PATH: /data/iphone-favorites
+      PHOTO_LOCAL_STORAGE_PATH: /data/archive
+    volumes:
+      - photo-manager-data:/data
+
+volumes:
+  photo-manager-data:

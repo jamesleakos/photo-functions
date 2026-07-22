@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: james-photo-manager
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PHOTO_DATA_DIR
+        value: /data
+      - key: PHOTO_DATABASE_PATH
+        value: /data/catalog.db
+      - key: PHOTO_THUMBNAIL_DIR
+        value: /data/thumbnails
+      - key: PHOTO_UPLOAD_DIR
+        value: /data/uploads
+      - key: PHOTO_IPHONE_EXPORT_PATH
+        value: /data/iphone-favorites
+      - key: PHOTO_STORAGE_BACKEND
+        value: s3
+      - key: PHOTO_S3_BUCKET
+        value: photo-manager-archive-784249554271-us-west-2
+      - key: PHOTO_S3_REGION
+        value: us-west-2
+      - key: PHOTO_S3_PREFIX
+        value: photo-manager
+      - key: PHOTO_CLOUD_CATALOG_SYNC
+        value: "true"
+      - key: PHOTO_HOSTED_GALLERY
+        value: "true"
+      - key: PHOTO_AUTH_USERNAME
+        sync: false
+      - key: PHOTO_AUTH_PASSWORD
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false

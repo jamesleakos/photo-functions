@@ -1,5 +1,12 @@
-Pillow>=10.0.0  # For image processing
-imagehash>=4.3.1  # For image comparison
-tqdm>=4.65.0     # For progress bars
-pillow-heif>=0.15.0  # For HEIC support 
-piexif>=1.1.3    # For EXIF metadata handling 
+# Prefer `pip install -e .` for the complete application. These requirements are
+# retained for compatibility with the original scripts.
+Pillow>=10.0.0
+imagehash>=4.3.1
+tqdm>=4.65.0
+pillow-heif>=0.15.0
+piexif>=1.1.3
+boto3>=1.34
+fastapi>=0.115
+python-dotenv>=1.0
+python-multipart>=0.0.9
+uvicorn[standard]>=0.30

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Manager</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b8472d'/%3E%3Ccircle cx='32' cy='32' r='16' fill='none' stroke='white' stroke-width='5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">PERSONAL ARCHIVE</p>
+      <h1>Photo Manager</h1>
+    </div>
+    <div class="header-actions">
+      <label class="button secondary upload-button local-only">
+        Add photos
+        <input id="upload-input" type="file" accept="image/*,video/*" multiple hidden>
+      </label>
+      <button id="backup-button" class="button local-only">Back up now</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="stats" class="stats" aria-label="Library summary"></section>
+
+    <nav class="tabs" aria-label="Photo manager sections">
+      <button class="tab active" data-view="library">Library</button>
+      <button class="tab" data-view="duplicates">Duplicate review <span id="duplicate-count"></span></button>
+    </nav>
+
+    <section id="library-view">
+      <div class="toolbar">
+        <div class="field issue-field">
+          <label for="issue-input">Working magazine issue</label>
+          <input id="issue-input" value="Next issue" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="status-filter">Show</label>
+          <select id="status-filter">
+            <option value="">All photos</option>
+            <option value="candidate">Magazine candidates</option>
+            <option value="selected">Selected</option>
+            <option value="placed">Placed</option>
+            <option value="not_uploaded">Needs backup</option>
+          </select>
+        </div>
+        <div class="field compact-field">
+          <label for="year-filter">Year</label>
+          <input id="year-filter" type="number" min="1900" max="2200" value="2024" inputmode="numeric">
+        </div>
+        <label class="check"><input id="favorites-filter" type="checkbox"> iPhone favorites only</label>
+      </div>
+      <div id="photo-grid" class="photo-grid"></div>
+      <div class="load-more-wrap"><button id="load-more" class="button secondary hidden">Load more</button></div>
+      <div id="empty-library" class="empty hidden">
+        <h2>Your catalog is empty</h2>
+        <p>Add photos here, or run <code>photo-manager scan /path/to/card --source camera</code>.</p>
+      </div>
+    </section>
+
+    <section id="duplicates-view" class="hidden">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">QUALITY CONTROL</p>
+          <h2>Choose the master</h2>
+        </div>
+        <p>Nothing is deleted here. Confirming means only the chosen master is used for future backup.</p>
+      </div>
+      <div id="duplicate-list" class="duplicate-list"></div>
+      <div id="empty-duplicates" class="empty hidden">
+        <h2>No duplicate decisions waiting</h2>
+        <p>Visually similar exports will appear here after your next import.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

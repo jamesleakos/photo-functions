@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Private, versioned storage and least-privilege access for Photo Manager
+
+Parameters:
+  ArchiveBucketName:
+    Type: String
+    Description: Globally unique S3 bucket name for the photo archive
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+  BootstrapPrincipalArn:
+    Type: String
+    Description: Existing IAM principal allowed to assume the local Photo Manager role
+  MonthlyBudget:
+    Type: Number
+    Default: 125
+    MinValue: 1
+    Description: Monthly S3 budget threshold in USD
+  BudgetEmail:
+    Type: String
+    Default: ""
+    Description: Optional address for budget alerts
+
+Conditions:
+  HasBudgetEmail: !Not [!Equals [!Ref BudgetEmail, ""]]
+
+Resources:
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ArchiveBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: MoveToIntelligentTiering
+            Status: Enabled
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 0
+          - Id: ExpireOldNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: project
+          Value: photo-manager
+        - Key: purpose
+          Value: personal-photo-archive
+
+  ArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArchiveBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ArchiveBucket.Arn
+              - !Sub "${ArchiveBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+
+  LocalApplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: photo-manager-local
+      Description: Least-privilege S3 access for the local Photo Manager application
+      MaxSessionDuration: 43200
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref BootstrapPrincipalArn
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: photo-manager-archive-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListArchive
+                Effect: Allow
+                Action:
+                  - "s3:GetBucketLocation"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                Resource: !GetAtt ArchiveBucket.Arn
+              - Sid: ReadWriteArchiveObjects
+                Effect: Allow
+                Action:
+                  - "s3:AbortMultipartUpload"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:ListMultipartUploadParts"
+                  - "s3:PutObject"
+                Resource: !Sub "${ArchiveBucket.Arn}/*"
+      Tags:
+        - Key: project
+          Value: photo-manager
+
+  HostedGalleryUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: photo-manager-render-gallery
+      Policies:
+        - PolicyName: photo-manager-hosted-gallery-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadGalleryObjects
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                Resource:
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/originals/*"
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/metadata/catalog-latest.db"
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/thumbnails/*"
+              - Sid: WriteGalleryMetadataAndThumbnails
+                Effect: Allow
+                Action: "s3:PutObject"
+                Resource:
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/metadata/catalog-latest.db"
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/thumbnails/*"
+      Tags:
+        - Key: project
+          Value: photo-manager
+        - Key: purpose
+          Value: render-hosted-gallery
+
+  StorageBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: photo-manager-s3-monthly
+        BudgetLimit:
+          Amount: !Ref MonthlyBudget
+          Unit: USD
+        BudgetType: COST
+        CostFilters:
+          Region:
+            - us-west-2
+          Service:
+            - Amazon Simple Storage Service
+        TimeUnit: MONTHLY
+      NotificationsWithSubscribers: !If
+        - HasBudgetEmail
+        - - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: FORECASTED
+              Threshold: 80
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - Address: !Ref BudgetEmail
+                SubscriptionType: EMAIL
+          - Notification:
+              ComparisonOperator: GREATER_THAN
+              NotificationType: ACTUAL
+              Threshold: 100
+              ThresholdType: PERCENTAGE
+            Subscribers:
+              - Address: !Ref BudgetEmail
+                SubscriptionType: EMAIL
+        - !Ref AWS::NoValue
+
+Outputs:
+  ArchiveBucketName:
+    Description: Photo archive bucket
+    Value: !Ref ArchiveBucket
+  LocalApplicationRoleArn:
+    Description: Role used by the local Photo Manager profile
+    Value: !GetAtt LocalApplicationRole.Arn
+  HostedGalleryUserName:
+    Description: Least-privilege IAM user for the hosted gallery
+    Value: !Ref HostedGalleryUser
+  MonthlyBudgetName:
+    Description: AWS Budget tracking S3 costs in us-west-2
+    Value: !Ref StorageBudget

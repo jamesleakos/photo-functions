@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.photo-manager
+data
+photos
+**/__pycache__
+**/*.pyc
+**/*.db
+.DS_Store
+
