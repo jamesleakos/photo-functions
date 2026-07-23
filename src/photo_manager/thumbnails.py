@@ -19,20 +19,35 @@ def create_thumbnail(source: Path, destination: Path, size: tuple[int, int] = (7
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and destination.stat().st_mtime >= source.stat().st_mtime:
         return destination
+    preview = _extract_preview(source)
+    if preview is not None:
+        with Image.open(io.BytesIO(preview)) as image:
+            _save_thumbnail(image, destination, size)
+        return destination
     try:
         with Image.open(source) as image:
-            image = ImageOps.exif_transpose(image)
-            image.thumbnail(size)
-            image.convert("RGB").save(destination, "JPEG", quality=84, optimize=True)
+            _save_thumbnail(image, destination, size)
             return destination
     except Exception:
         preview = _extract_preview(source)
         if preview is None:
             raise
         with Image.open(io.BytesIO(preview)) as image:
-            image.thumbnail(size)
-            image.convert("RGB").save(destination, "JPEG", quality=84, optimize=True)
+            _save_thumbnail(image, destination, size)
         return destination
+
+
+def _save_thumbnail(image: Image.Image, destination: Path, size: tuple[int, int]) -> None:
+    display_image = ImageOps.exif_transpose(image)
+    try:
+        display_image.thumbnail(size)
+        converted = display_image.convert("RGB")
+        try:
+            converted.save(destination, "JPEG", quality=84, optimize=True)
+        finally:
+            converted.close()
+    finally:
+        display_image.close()
 
 
 def _extract_preview(source: Path) -> bytes | None:
