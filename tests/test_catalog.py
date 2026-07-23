@@ -244,3 +244,34 @@ def test_editorial_flags_and_filters_combine_across_dimensions(tmp_path, setting
         catalog.set_editorial_flag(by_name[camera.name]["id"], "maybe")
     with pytest.raises(KeyError):
         catalog.set_editorial_flag(9999, "candidate")
+
+
+def test_photo_and_video_filters_allow_either_or_both(tmp_path, settings):
+    photo = tmp_path / "still.jpg"
+    video = tmp_path / "clip.mov"
+    photo.write_bytes(b"still image")
+    video.write_bytes(b"moving image")
+    extractor = FixedExtractor(
+        {
+            photo.name: metadata(3000, 2000, "1234567890abcdef"),
+            video.name: PhotoMetadata(
+                media_type="video/quicktime",
+                captured_at="2026-07-02T12:00:00",
+            ),
+        }
+    )
+    catalog = Catalog(Database(settings.database_path), settings, extractor)
+    catalog.ingest_file(photo, "camera")
+    catalog.ingest_file(video, "camera")
+
+    assert [item["filename"] for item in catalog.list_photos(media=["photo"])] == [
+        photo.name
+    ]
+    assert [item["filename"] for item in catalog.list_photos(media=["video"])] == [
+        video.name
+    ]
+    assert {
+        item["filename"] for item in catalog.list_photos(media=["photo", "video"])
+    } == {photo.name, video.name}
+    with pytest.raises(ValueError):
+        catalog.list_photos(media=["audio"])

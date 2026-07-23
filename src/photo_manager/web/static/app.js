@@ -147,9 +147,10 @@ function movePhotoViewer(direction) {
 function updateFilterSummary() {
   const flagCount = selectedValues("flag-filter").length;
   const sourceCount = selectedValues("source-filter").length;
+  const mediaCount = selectedValues("media-filter").length;
   const hasDates = Boolean($("#date-from").value || $("#date-to").value);
   const favorite = $("#favorites-filter").checked;
-  const activeCount = flagCount + sourceCount + Number(hasDates) + Number(favorite);
+  const activeCount = flagCount + sourceCount + mediaCount + Number(hasDates) + Number(favorite);
   $("#filter-count").textContent = activeCount ? `${activeCount} active filter${activeCount === 1 ? "" : "s"} ·` : "All";
 }
 
@@ -158,6 +159,7 @@ async function loadPhotos(reset = true) {
   const params = new URLSearchParams({ limit: String(state.pageSize), offset: String(state.offset) });
   selectedValues("flag-filter").forEach(flag => params.append("flag", flag));
   selectedValues("source-filter").forEach(source => params.append("source", source));
+  selectedValues("media-filter").forEach(media => params.append("media", media));
   if ($("#favorites-filter").checked) params.set("favorite", "true");
   const dateFrom = $("#date-from").value;
   const dateTo = $("#date-to").value;
@@ -286,12 +288,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#library-view").classList.toggle("hidden", tab.dataset.view !== "library");
     $("#duplicates-view").classList.toggle("hidden", tab.dataset.view !== "duplicates");
   }));
-  document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], #favorites-filter')
+  document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
     .forEach(input => input.addEventListener("change", () => loadPhotos()));
   $("#date-from").addEventListener("change", () => loadPhotos());
   $("#date-to").addEventListener("change", () => loadPhotos());
   $("#clear-filters").addEventListener("click", () => {
-    document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], #favorites-filter')
+    document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
       .forEach(input => { input.checked = false; });
     $("#date-from").value = "";
     $("#date-to").value = "";

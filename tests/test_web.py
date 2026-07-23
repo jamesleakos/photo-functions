@@ -54,6 +54,7 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert "Flagship" in index.text
     assert "Favourited" in index.text
     assert "Not included" in index.text
+    assert 'name="media-filter"' in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
     assert "Working magazine issue" not in index.text
@@ -83,6 +84,10 @@ def test_video_gets_placeholder_thumbnail(tmp_path, settings):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert "clip.mov" in response.text
+    assert client.get("/api/photos", params={"media": "photo"}).json() == []
+    videos = client.get("/api/photos", params={"media": "video"})
+    assert [item["id"] for item in videos.json()] == [photo_id]
+    assert client.get("/api/photos", params={"media": "audio"}).status_code == 422
 
 
 def test_auth_protects_everything_except_health(settings):

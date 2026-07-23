@@ -69,7 +69,7 @@ It sizes Favorites before download, processes small resumable batches, uploads a
 photo-manager serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Review uncertain variants under **Duplicate review**, then flag photos as **Flagship**, **Include**, **Candidate**, **One of**, or **Not included**. “One of” is a shared shortlist and can be applied to any number of alternatives. The flag, source, favourite, and captured-date filters compose with one another.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Review uncertain variants under **Duplicate review**, then flag photos as **Flagship**, **Include**, **Candidate**, **One of**, or **Not included**. “One of” is a shared shortlist and can be applied to any number of alternatives. The flag, source, photo/video, favourite, and captured-date filters compose with one another.
 
 ### 4. Back up
 

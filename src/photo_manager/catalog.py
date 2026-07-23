@@ -480,6 +480,7 @@ class Catalog:
         year: int | None = None,
         include_nonpreferred: bool = True,
         editorial_flags: Iterable[str] | None = None,
+        media: str | Iterable[str] | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -565,6 +566,19 @@ class Catalog:
         if date_to:
             clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 10) <= ?")
             parameters.append(date_to)
+        if media:
+            media_values = [media] if isinstance(media, str) else list(media)
+            selected_media = {value.strip().lower() for value in media_values if value.strip()}
+            invalid_media = selected_media - {"photo", "video"}
+            if invalid_media:
+                raise ValueError(f"Invalid media types: {', '.join(sorted(invalid_media))}")
+            media_clauses: list[str] = []
+            if "photo" in selected_media:
+                media_clauses.append("p.media_type LIKE 'image/%'")
+            if "video" in selected_media:
+                media_clauses.append("p.media_type LIKE 'video/%'")
+            if media_clauses:
+                clauses.append(f"({' OR '.join(media_clauses)})")
         selected_flags = set(editorial_flags or [])
         invalid_flags = selected_flags - EDITORIAL_FLAGS - {"unflagged"}
         if invalid_flags:

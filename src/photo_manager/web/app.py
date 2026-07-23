@@ -46,6 +46,7 @@ EditorialFlagFilter = Literal[
     "flagship", "include", "candidate", "one_of", "not_included", "unflagged"
 ]
 PhotoSourceFilter = Literal["camera", "phone"]
+MediaFilter = Literal["photo", "video"]
 
 
 class EditorialFlagUpdate(BaseModel):
@@ -225,6 +226,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         year: int | None = Query(None, ge=1900, le=2200),
         include_nonpreferred: bool = False,
         flag: list[EditorialFlagFilter] = Query(default=[]),
+        media: list[MediaFilter] = Query(default=[]),
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[dict]:
@@ -242,6 +244,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             year=year,
             include_nonpreferred=include_nonpreferred,
             editorial_flags=flag,
+            media=media or None,
             date_from=date_from.isoformat() if date_from else None,
             date_to=date_to.isoformat() if date_to else None,
         )

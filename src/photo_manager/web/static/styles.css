@@ -106,7 +106,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .text-button:hover { color: var(--accent-dark); text-decoration: underline; }
 .filter-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 1.65fr) minmax(145px, .55fr) minmax(300px, 1.15fr) auto;
+  grid-template-columns: minmax(340px, 1.65fr) minmax(135px, .55fr) minmax(135px, .55fr) minmax(280px, 1.15fr) auto;
   gap: .55rem;
   align-items: end;
 }
