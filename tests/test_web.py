@@ -44,6 +44,8 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     index = client.get("/")
     assert "Flagship" in index.text
     assert "Favourited" in index.text
+    assert 'id="photo-viewer"' in index.text
+    assert 'id="viewer-flag-controls"' in index.text
     assert "Working magazine issue" not in index.text
 
 

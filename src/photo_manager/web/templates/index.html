@@ -34,78 +34,76 @@
     </nav>
 
     <section id="library-view">
-      <section class="filter-panel" aria-label="Library filters">
-        <div class="filter-heading">
-          <div>
-            <p class="eyebrow">FILTER LIBRARY</p>
-            <p class="filter-summary"><span id="filter-count">All</span> photos shown by date</p>
-          </div>
+      <details class="filter-panel" aria-label="Library filters">
+        <summary class="filter-heading">
+          <p class="filter-summary"><strong>Filters</strong> · <span id="filter-count">All</span> photos shown by date</p>
+          <span class="filter-disclosure" aria-hidden="true"></span>
+        </summary>
+
+        <div class="filter-body">
           <button id="clear-filters" class="text-button" type="button">Clear filters</button>
+          <div class="filter-grid">
+            <fieldset class="filter-group flag-filter-group">
+              <legend>Editorial flag</legend>
+              <div class="filter-options">
+                <label class="filter-chip flag-flagship">
+                  <input type="checkbox" name="flag-filter" value="flagship">
+                  <span>Flagship</span>
+                </label>
+                <label class="filter-chip flag-include">
+                  <input type="checkbox" name="flag-filter" value="include">
+                  <span>Include</span>
+                </label>
+                <label class="filter-chip flag-candidate">
+                  <input type="checkbox" name="flag-filter" value="candidate">
+                  <span>Candidate</span>
+                </label>
+                <label class="filter-chip flag-one-of" title="A shared shortlist for alternative photos">
+                  <input type="checkbox" name="flag-filter" value="one_of">
+                  <span>One of</span>
+                </label>
+                <label class="filter-chip flag-unflagged">
+                  <input type="checkbox" name="flag-filter" value="unflagged">
+                  <span>Unflagged</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="filter-group source-filter-group">
+              <legend>Source</legend>
+              <div class="filter-options">
+                <label class="filter-chip">
+                  <input type="checkbox" name="source-filter" value="camera">
+                  <span>Camera</span>
+                </label>
+                <label class="filter-chip">
+                  <input type="checkbox" name="source-filter" value="phone">
+                  <span>Phone</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="filter-group date-filter-group">
+              <legend>Captured</legend>
+              <div class="date-range">
+                <label for="date-from">From</label>
+                <input id="date-from" type="date">
+                <span aria-hidden="true">—</span>
+                <label for="date-to">To</label>
+                <input id="date-to" type="date">
+              </div>
+            </fieldset>
+
+            <fieldset class="filter-group favorite-filter-group">
+              <legend>Favourite</legend>
+              <label class="filter-chip favorite-filter">
+                <input id="favorites-filter" type="checkbox">
+                <span>Favourited</span>
+              </label>
+            </fieldset>
+          </div>
         </div>
-
-        <div class="filter-grid">
-          <fieldset class="filter-group flag-filter-group">
-            <legend>Editorial flag</legend>
-            <div class="filter-options">
-              <label class="filter-chip flag-flagship">
-                <input type="checkbox" name="flag-filter" value="flagship">
-                <span>Flagship</span>
-              </label>
-              <label class="filter-chip flag-include">
-                <input type="checkbox" name="flag-filter" value="include">
-                <span>Include</span>
-              </label>
-              <label class="filter-chip flag-candidate">
-                <input type="checkbox" name="flag-filter" value="candidate">
-                <span>Candidate</span>
-              </label>
-              <label class="filter-chip flag-one-of">
-                <input type="checkbox" name="flag-filter" value="one_of">
-                <span>One of</span>
-              </label>
-              <label class="filter-chip flag-unflagged">
-                <input type="checkbox" name="flag-filter" value="unflagged">
-                <span>Unflagged</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="filter-group source-filter-group">
-            <legend>Source</legend>
-            <div class="filter-options">
-              <label class="filter-chip">
-                <input type="checkbox" name="source-filter" value="camera">
-                <span>Camera</span>
-              </label>
-              <label class="filter-chip">
-                <input type="checkbox" name="source-filter" value="phone">
-                <span>Phone</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="filter-group date-filter-group">
-            <legend>Captured</legend>
-            <div class="date-range">
-              <label for="date-from">From</label>
-              <input id="date-from" type="date">
-              <span aria-hidden="true">—</span>
-              <label for="date-to">To</label>
-              <input id="date-to" type="date">
-            </div>
-          </fieldset>
-
-          <fieldset class="filter-group favorite-filter-group">
-            <legend>Favourite</legend>
-            <label class="filter-chip favorite-filter">
-              <input id="favorites-filter" type="checkbox">
-              <span>Favourited</span>
-            </label>
-          </fieldset>
-        </div>
-
-        <p class="one-of-note"><strong>One of</strong> is a shared shortlist—flag as many alternatives as you like, then choose one for the magazine later.</p>
-      </section>
+      </details>
 
       <div id="photo-grid" class="photo-grid"></div>
       <div class="load-more-wrap"><button id="load-more" class="button secondary hidden">Load more</button></div>
@@ -130,6 +128,16 @@
       </div>
     </section>
   </main>
+
+  <dialog id="photo-viewer" class="photo-viewer" aria-label="Full-screen photo viewer">
+    <div class="viewer-shell">
+      <div class="viewer-media">
+        <img id="viewer-image" alt="">
+        <button id="viewer-close" class="viewer-close" type="button" aria-label="Close full-screen viewer">×</button>
+      </div>
+      <div id="viewer-flag-controls" class="viewer-flag-controls" aria-label="Editorial flag"></div>
+    </div>
+  </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
   <script src="/static/app.js" defer></script>

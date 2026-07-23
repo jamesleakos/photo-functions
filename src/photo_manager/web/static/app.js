@@ -1,4 +1,11 @@
-const state = { photos: [], groups: [], offset: 0, pageSize: 72, hosted: false };
+const state = {
+  photos: [],
+  groups: [],
+  offset: 0,
+  pageSize: 72,
+  hosted: false,
+  viewerPhoto: null,
+};
 const $ = (selector) => document.querySelector(selector);
 
 function formatBytes(bytes) {
@@ -61,24 +68,27 @@ function sourceLabel(sources) {
   return "Archive";
 }
 
-function photoCard(photo) {
-  const megapixels = photo.width && photo.height ? `${(photo.width * photo.height / 1e6).toFixed(1)} MP` : "Unknown size";
+function flagButtons(photo, context = "card") {
   const activeFlag = photo.editorial_flag || "";
-  const flagButtons = Object.entries(flagLabels).map(([flag, label]) => `
+  return Object.entries(flagLabels).map(([flag, label]) => `
     <button class="flag-button flag-${flag.replace("_", "-")} ${activeFlag === flag ? "active" : ""}"
       type="button" aria-pressed="${activeFlag === flag}"
+      data-flag-context="${context}"
       onclick="setEditorialFlag(${photo.id}, '${flag}')">${label}</button>`).join("");
+}
+
+function photoCard(photo) {
+  const activeFlag = photo.editorial_flag || "";
   return `<article class="photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}" data-photo-id="${photo.id}">
-    <a class="photo-image" href="/api/photos/${photo.id}/original" target="_blank" rel="noopener">
+    <button class="photo-image" type="button" onclick="openPhotoViewer(${photo.id})"
+      aria-label="View ${escapeHtml(photo.filename)} full screen" title="${escapeHtml(photo.filename)}">
       <img loading="lazy" src="/api/photos/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename)}">
       <span class="source-label">${sourceLabel(photo.sources)}</span>
       ${photo.favorite ? '<span class="favorite-mark" title="Favourited">♥</span>' : ""}
       ${activeFlag ? `<span class="editorial-badge flag-${activeFlag.replace("_", "-")}">${flagLabels[activeFlag]}</span>` : ""}
-    </a>
+    </button>
     <div class="photo-info">
-      <div class="photo-title"><strong title="${escapeHtml(photo.filename)}">${escapeHtml(photo.filename)}</strong><span>${megapixels}</span></div>
-      <p class="photo-meta">${photo.captured_at ? photo.captured_at.slice(0, 10) : "No date"} · ${formatBytes(photo.size_bytes)}</p>
-      <div class="flag-controls" aria-label="Editorial flag">${flagButtons}</div>
+      <div class="flag-controls" aria-label="Editorial flag">${flagButtons(photo)}</div>
     </div>
   </article>`;
 }
@@ -89,6 +99,37 @@ function escapeHtml(value) {
 function renderPhotos() {
   $("#photo-grid").innerHTML = state.photos.map(photoCard).join("");
   $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
+}
+
+function updatePhotoViewer() {
+  const photo = state.viewerPhoto;
+  if (!photo) return;
+  $("#viewer-image").src = `/api/photos/${photo.id}/thumbnail`;
+  $("#viewer-image").alt = photo.filename;
+  $("#viewer-flag-controls").innerHTML = flagButtons(photo, "viewer");
+}
+
+function openPhotoViewer(photoId) {
+  const photo = state.photos.find(item => item.id === photoId);
+  if (!photo) return;
+  state.viewerPhoto = photo;
+  updatePhotoViewer();
+  const viewer = $("#photo-viewer");
+  if (!viewer.open) viewer.showModal();
+}
+
+function closePhotoViewer() {
+  const viewer = $("#photo-viewer");
+  if (viewer.open) viewer.close();
+}
+
+function movePhotoViewer(direction) {
+  if (!state.viewerPhoto || state.photos.length < 2) return;
+  const currentIndex = state.photos.findIndex(item => item.id === state.viewerPhoto.id);
+  if (currentIndex < 0) return;
+  const nextIndex = (currentIndex + direction + state.photos.length) % state.photos.length;
+  state.viewerPhoto = state.photos[nextIndex];
+  updatePhotoViewer();
 }
 
 function updateFilterSummary() {
@@ -123,7 +164,8 @@ async function loadPhotos(reset = true) {
 }
 
 async function setEditorialFlag(photoId, flag) {
-  const photo = state.photos.find(item => item.id === photoId);
+  const photo = state.photos.find(item => item.id === photoId)
+    || (state.viewerPhoto && state.viewerPhoto.id === photoId ? state.viewerPhoto : null);
   if (!photo) return;
   const nextFlag = photo.editorial_flag === flag ? null : flag;
   try {
@@ -134,11 +176,17 @@ async function setEditorialFlag(photoId, flag) {
     photo.editorial_flag = nextFlag;
     const activeFilters = selectedValues("flag-filter");
     const effectiveFlag = nextFlag || "unflagged";
+    let removedFromResults = false;
     if (activeFilters.length && !activeFilters.includes(effectiveFlag)) {
       state.photos = state.photos.filter(item => item.id !== photoId);
       state.offset = state.photos.length;
+      removedFromResults = true;
     }
     renderPhotos();
+    if (state.viewerPhoto && state.viewerPhoto.id === photoId) {
+      if (removedFromResults) closePhotoViewer();
+      else updatePhotoViewer();
+    }
     await loadStats();
     showToast(nextFlag ? `Flagged as ${flagLabels[nextFlag]}.` : "Flag removed.");
   } catch (error) { showToast(error.message); }
@@ -209,6 +257,18 @@ async function uploadFiles(files) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  $("#viewer-close").addEventListener("click", closePhotoViewer);
+  $("#photo-viewer").addEventListener("close", () => { state.viewerPhoto = null; });
+  $("#photo-viewer").addEventListener("keydown", event => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      movePhotoViewer(-1);
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      movePhotoViewer(1);
+    }
+  });
   document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item === tab));
     $("#library-view").classList.toggle("hidden", tab.dataset.view !== "library");
@@ -239,4 +299,5 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 window.setEditorialFlag = setEditorialFlag;
+window.openPhotoViewer = openPhotoViewer;
 window.decideGroup = decideGroup;
