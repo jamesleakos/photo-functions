@@ -189,6 +189,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     const config = await api("/api/config");
     state.hosted = Boolean(config.hosted_gallery);
+    if (state.hosted) state.pageSize = 24;
     document.querySelectorAll(".local-only").forEach(item => item.classList.toggle("hidden", state.hosted));
     await Promise.all([loadStats(), loadPhotos(), loadDuplicates()]);
   }

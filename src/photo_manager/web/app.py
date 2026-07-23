@@ -88,7 +88,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     catalog = Catalog(Database(settings.database_path), settings)
     web_root = Path(__file__).parent
     catalog_sync_lock = threading.Lock()
-    thumbnail_lock = threading.BoundedSemaphore(4)
+    # A full-resolution HEIC can occupy well over 100 MB while Pillow decodes it.
+    # Serialize hosted generation so a fresh gallery page cannot exhaust a small
+    # Render instance; local machines can retain modest parallelism.
+    thumbnail_lock = threading.BoundedSemaphore(1 if settings.hosted_gallery else 4)
 
     def persist_catalog() -> None:
         if settings.cloud_catalog_sync:
