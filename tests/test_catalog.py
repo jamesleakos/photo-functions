@@ -63,6 +63,10 @@ def test_high_resolution_variant_becomes_confirmed_master(tmp_path, settings):
     preferred = next(item for item in groups[0]["members"] if item["is_preferred"])
     assert preferred["filename"] == camera.name
     assert [item["filename"] for item in catalog.backup_candidates()] == [camera.name]
+    gallery_names = {
+        item["filename"] for item in catalog.list_photos(include_nonpreferred=False)
+    }
+    assert gallery_names == {camera.name}
     favorite_names = {item["filename"] for item in catalog.list_photos(favorite=True)}
     assert camera.name in favorite_names
     camera_item = next(item for item in catalog.list_photos() if item["filename"] == camera.name)

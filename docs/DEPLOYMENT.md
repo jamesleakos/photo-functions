@@ -95,9 +95,10 @@ AWS_SECRET_ACCESS_KEY=the-hosted-gallery-secret
 ```
 
 Use the dedicated `photo-manager-render-gallery` IAM user created by the storage stack. It can
-read originals and can write only the catalog snapshot and thumbnail cache; it cannot delete or
-replace archive originals. Its filesystem is ephemeral by design; S3 remains the authoritative
-store.
+list and read archive objects, and can write only the catalog snapshot and thumbnail cache; it
+cannot delete or replace archive originals. Bucket listing lets S3 distinguish a missing cached
+thumbnail (404) from a forbidden object (403). Its filesystem is ephemeral by design; S3 remains
+the authoritative store.
 
 ## Restore
 

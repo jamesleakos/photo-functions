@@ -473,9 +473,15 @@ class Catalog:
         backup_status: str | None = None,
         tag: str | None = None,
         year: int | None = None,
+        include_nonpreferred: bool = True,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         parameters: list[Any] = []
+        if not include_nonpreferred:
+            clauses.append(
+                """(vg.review_status IS NULL OR vg.review_status != 'confirmed'
+                   OR vg.preferred_photo_id = p.id)"""
+            )
         if source:
             clauses.append(
                 "EXISTS (SELECT 1 FROM locations sx WHERE sx.photo_id = p.id AND sx.source = ?)"

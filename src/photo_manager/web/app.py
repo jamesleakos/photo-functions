@@ -207,6 +207,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backup_status: str | None = None,
         tag: str | None = None,
         year: int | None = Query(None, ge=1900, le=2200),
+        include_nonpreferred: bool = False,
     ) -> list[dict]:
         return catalog.list_photos(
             limit=limit,
@@ -218,6 +219,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             backup_status=backup_status,
             tag=tag,
             year=year,
+            include_nonpreferred=include_nonpreferred,
         )
 
     def local_or_restored(photo_id: int) -> tuple[dict, Path]:

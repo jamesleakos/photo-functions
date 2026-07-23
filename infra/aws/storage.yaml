@@ -129,6 +129,10 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - Sid: ListGalleryObjects
+                Effect: Allow
+                Action: "s3:ListBucket"
+                Resource: !GetAtt ArchiveBucket.Arn
               - Sid: ReadGalleryObjects
                 Effect: Allow
                 Action:
