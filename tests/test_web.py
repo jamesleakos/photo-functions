@@ -90,6 +90,24 @@ def test_login_uses_a_secure_session_instead_of_browser_dialog(settings):
     assert client.get("/", follow_redirects=False).headers["location"] == "/login"
 
 
+def test_hosted_login_cookie_is_always_secure(settings):
+    hosted = replace(
+        settings,
+        hosted_gallery=True,
+        auth_username="owner",
+        auth_password="correct horse battery staple",
+    )
+    client = TestClient(create_app(hosted))
+
+    response = client.post(
+        "/login",
+        data={"username": "owner", "password": "correct horse battery staple"},
+        follow_redirects=False,
+    )
+
+    assert "Secure" in response.headers["set-cookie"]
+
+
 def test_hosted_gallery_disables_imports_and_backup(settings):
     hosted = replace(settings, hosted_gallery=True)
     client = TestClient(create_app(hosted))

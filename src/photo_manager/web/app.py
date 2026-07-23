@@ -171,7 +171,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _new_session_cookie(username, password),
             max_age=SESSION_MAX_AGE,
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=settings.hosted_gallery or request.url.scheme == "https",
             samesite="lax",
         )
         response.headers["Cache-Control"] = "no-store"
