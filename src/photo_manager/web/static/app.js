@@ -91,11 +91,13 @@ function flagButtons(photo, context = "card") {
 
 function photoCard(photo) {
   const activeFlag = photo.editorial_flag || "";
+  const capturedDate = photo.captured_at ? photo.captured_at.slice(0, 10) : "";
+  const sourceAndDate = `${sourceLabel(photo.sources)}${capturedDate ? ` · ${capturedDate}` : ""}`;
   return `<article class="photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}" data-photo-id="${photo.id}">
     <button class="photo-image" type="button" onclick="openPhotoViewer(${photo.id})"
       aria-label="View ${escapeHtml(photo.filename)} full screen" title="${escapeHtml(photo.filename)}">
       <img loading="lazy" src="/api/photos/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename)}">
-      <span class="source-label">${sourceLabel(photo.sources)}</span>
+      <span class="source-label">${escapeHtml(sourceAndDate)}</span>
       ${photo.favorite ? '<span class="favorite-mark" title="Favourited">♥</span>' : ""}
       ${activeFlag ? `<span class="editorial-badge flag-${activeFlag.replace("_", "-")}">${flagLabels[activeFlag]}</span>` : ""}
     </button>
@@ -305,7 +307,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     const config = await api("/api/config");
     state.hosted = Boolean(config.hosted_gallery);
-    if (state.hosted) state.pageSize = 24;
+    if (state.hosted) state.pageSize = 60;
     document.querySelectorAll(".local-only").forEach(item => item.classList.toggle("hidden", state.hosted));
     await Promise.all([loadStats(), loadPhotos(), loadDuplicates()]);
   }
