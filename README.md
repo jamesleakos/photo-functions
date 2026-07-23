@@ -103,7 +103,8 @@ Set `PHOTO_AUTH_USERNAME` and `PHOTO_AUTH_PASSWORD` in `.env`, then:
 docker compose up --build
 ```
 
-The CLI refuses to bind to a non-loopback address without both credentials.
+The CLI refuses to bind to a non-loopback address without both credentials. The hosted app uses
+these credentials on a normal sign-in page and keeps the browser signed in for 30 days.
 
 ## Deploy the hosted gallery
 

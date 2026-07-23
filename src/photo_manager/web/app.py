@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import html
 import secrets
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -47,6 +50,35 @@ class ScanRequest(BaseModel):
     favorite: bool = False
 
 
+SESSION_COOKIE = "photo_manager_session"
+SESSION_MAX_AGE = 60 * 60 * 24 * 30
+
+
+def _session_signature(username: str, password: str, issued_at: int) -> str:
+    key = hashlib.sha256(f"photo-manager-session:{username}:{password}".encode()).digest()
+    return hmac.new(key, f"{username}:{issued_at}".encode(), hashlib.sha256).hexdigest()
+
+
+def _new_session_cookie(username: str, password: str) -> str:
+    issued_at = int(time.time())
+    return f"{issued_at}.{_session_signature(username, password, issued_at)}"
+
+
+def _valid_session_cookie(value: str | None, username: str, password: str) -> bool:
+    if not value:
+        return False
+    try:
+        issued_text, signature = value.split(".", 1)
+        issued_at = int(issued_text)
+    except (TypeError, ValueError):
+        return False
+    age = int(time.time()) - issued_at
+    if age < -300 or age > SESSION_MAX_AGE:
+        return False
+    expected = _session_signature(username, password, issued_at)
+    return secrets.compare_digest(signature, expected)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     settings.ensure_directories()
@@ -73,31 +105,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = storage
     app.mount("/static", StaticFiles(directory=web_root / "static"), name="static")
 
-    @app.middleware("http")
-    async def basic_auth(request: Request, call_next):
-        if not settings.auth_username or request.url.path == "/health":
-            return await call_next(request)
+    def valid_basic_auth(request: Request) -> bool:
         authorization = request.headers.get("Authorization", "")
-        valid = False
-        if authorization.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(authorization[6:]).decode("utf-8")
-                username, password = decoded.split(":", 1)
-                valid = secrets.compare_digest(
-                    username, settings.auth_username
-                ) and secrets.compare_digest(password, settings.auth_password or "")
-            except (ValueError, UnicodeDecodeError):
-                valid = False
-        if not valid:
-            return Response(
-                status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="Photo Manager"'},
-            )
+        if not authorization.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(authorization[6:]).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            return False
+        return secrets.compare_digest(
+            username, settings.auth_username or ""
+        ) and secrets.compare_digest(password, settings.auth_password or "")
+
+    @app.middleware("http")
+    async def session_auth(request: Request, call_next):
+        public_path = (
+            request.url.path == "/health"
+            or request.url.path == "/login"
+            or request.url.path.startswith("/static/")
+        )
+        if not settings.auth_username or public_path:
+            return await call_next(request)
+        valid_session = _valid_session_cookie(
+            request.cookies.get(SESSION_COOKIE),
+            settings.auth_username,
+            settings.auth_password or "",
+        )
+        if not valid_session and not valid_basic_auth(request):
+            if request.url.path.startswith("/api/"):
+                return JSONResponse({"detail": "Sign in required"}, status_code=401)
+            return RedirectResponse("/login", status_code=303)
         return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/login", response_class=FileResponse)
+    def login_page(request: Request):
+        if not settings.auth_username:
+            return RedirectResponse("/", status_code=303)
+        if _valid_session_cookie(
+            request.cookies.get(SESSION_COOKIE),
+            settings.auth_username,
+            settings.auth_password or "",
+        ):
+            return RedirectResponse("/", status_code=303)
+        return FileResponse(web_root / "templates" / "login.html")
+
+    @app.post("/login")
+    def login(
+        request: Request,
+        username: str = Form(...),
+        password: str = Form(...),
+    ) -> RedirectResponse:
+        valid = bool(settings.auth_username) and secrets.compare_digest(
+            username, settings.auth_username or ""
+        ) and secrets.compare_digest(password, settings.auth_password or "")
+        if not valid:
+            return RedirectResponse("/login?error=1", status_code=303)
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            _new_session_cookie(username, password),
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.post("/logout")
+    def logout() -> RedirectResponse:
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax")
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/", response_class=FileResponse)
     def index() -> FileResponse:

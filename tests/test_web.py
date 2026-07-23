@@ -52,8 +52,42 @@ def test_auth_protects_everything_except_health(settings):
     client = TestClient(create_app(protected))
 
     assert client.get("/health").status_code == 200
-    assert client.get("/").status_code == 401
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+    assert client.get("/login").status_code == 200
+    assert client.get("/api/photos").status_code == 401
     assert client.get("/", auth=("owner", "correct horse battery staple")).status_code == 200
+
+
+def test_login_uses_a_secure_session_instead_of_browser_dialog(settings):
+    protected = replace(
+        settings, auth_username="owner", auth_password="correct horse battery staple"
+    )
+    client = TestClient(create_app(protected))
+
+    failed = client.post(
+        "/login",
+        data={"username": "owner", "password": "wrong"},
+        follow_redirects=False,
+    )
+    assert failed.status_code == 303
+    assert failed.headers["location"] == "/login?error=1"
+
+    signed_in = client.post(
+        "/login",
+        data={"username": "owner", "password": "correct horse battery staple"},
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 303
+    assert signed_in.headers["location"] == "/"
+    assert "photo_manager_session=" in signed_in.headers["set-cookie"]
+    assert "HttpOnly" in signed_in.headers["set-cookie"]
+    assert client.get("/").status_code == 200
+
+    signed_out = client.post("/logout", follow_redirects=False)
+    assert signed_out.status_code == 303
+    assert client.get("/", follow_redirects=False).headers["location"] == "/login"
 
 
 def test_hosted_gallery_disables_imports_and_backup(settings):
