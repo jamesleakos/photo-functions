@@ -107,10 +107,11 @@ The CLI refuses to bind to a non-loopback address without both credentials.
 
 ## Deploy the hosted gallery
 
-`render.yaml` defines a free Render service that restores the catalog from S3 and persists every
-tagging decision back to S3. Set the four prompted secrets—gallery username/password and the
-dedicated hosted-gallery AWS access key—and deploy the Blueprint. Imports and backup controls are
-disabled in hosted mode; camera and iPhone ingestion remain on the Mac.
+`render.yaml` defines a Render Starter service—the least expensive instance that stays running—
+that restores the catalog from S3 and persists every tagging decision back to S3. Set the four
+prompted secrets—gallery username/password and the dedicated hosted-gallery AWS access key—and
+deploy the Blueprint. Imports and backup controls are disabled in hosted mode; camera and iPhone
+ingestion remain on the Mac.
 
 See [deployment and storage notes](docs/DEPLOYMENT.md#render-hosted-gallery) for the IAM boundary,
 cold-start behavior, and restore model.

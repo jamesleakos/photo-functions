@@ -2,7 +2,7 @@ services:
   - type: web
     name: james-photo-manager
     runtime: docker
-    plan: free
+    plan: starter
     region: oregon
     branch: main
     dockerfilePath: ./Dockerfile

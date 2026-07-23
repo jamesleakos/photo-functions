@@ -78,7 +78,8 @@ Put TLS in front of the container. Basic authentication is a deployment floor, n
 
 ## Render hosted gallery
 
-The included `render.yaml` creates a free, authenticated gallery in Render's Oregon region.
+The included `render.yaml` creates an authenticated gallery on Render's lowest-cost always-on
+Starter web instance in the Oregon region.
 Hosted gallery mode is intentionally stateless: it restores `metadata/catalog-latest.db` from
 S3 on a cold start, uploads a fresh catalog snapshot after every tag, magazine, or duplicate
 decision, and stores generated thumbnails under `photo-manager/thumbnails/`. Browser uploads,
@@ -95,9 +96,8 @@ AWS_SECRET_ACCESS_KEY=the-hosted-gallery-secret
 
 Use the dedicated `photo-manager-render-gallery` IAM user created by the storage stack. It can
 read originals and can write only the catalog snapshot and thumbnail cache; it cannot delete or
-replace archive originals. The free service spins down when idle, so the first request after a
-quiet period can take about a minute. Its filesystem is ephemeral by design; S3 remains the
-authoritative store.
+replace archive originals. Its filesystem is ephemeral by design; S3 remains the authoritative
+store.
 
 ## Restore
 
