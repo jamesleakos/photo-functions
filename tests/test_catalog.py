@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from photo_manager.catalog import Catalog
 from photo_manager.database import Database
 from photo_manager.metadata import PhotoMetadata
@@ -67,6 +69,11 @@ def test_high_resolution_variant_becomes_confirmed_master(tmp_path, settings):
         item["filename"] for item in catalog.list_photos(include_nonpreferred=False)
     }
     assert gallery_names == {camera.name}
+    phone_source_names = {
+        item["filename"]
+        for item in catalog.list_photos(source=["phone"], include_nonpreferred=False)
+    }
+    assert phone_source_names == {camera.name}
     favorite_names = {item["filename"] for item in catalog.list_photos(favorite=True)}
     assert camera.name in favorite_names
     camera_item = next(item for item in catalog.list_photos() if item["filename"] == camera.name)
@@ -177,3 +184,59 @@ def test_magazine_selection_and_tags_round_trip(tmp_path, settings):
         "source:camera",
     }
     assert set(result["user_tags"].split(", ")) == {"cover", "landscape"}
+
+
+def test_editorial_flags_and_filters_combine_across_dimensions(tmp_path, settings):
+    camera = tmp_path / "camera.jpg"
+    phone = tmp_path / "phone.jpg"
+    later = tmp_path / "later.jpg"
+    camera.write_bytes(b"camera editorial photo")
+    phone.write_bytes(b"phone editorial photo")
+    later.write_bytes(b"later unflagged photo")
+    extractor = FixedExtractor(
+        {
+            camera.name: metadata(6000, 4000, "0000000000000000", "2024-02-10T09:00:00"),
+            phone.name: metadata(3000, 2000, "5555555555555555", "2024-06-15T12:00:00"),
+            later.name: metadata(6000, 4000, "aaaaaaaaaaaaaaaa", "2025-01-05T15:00:00"),
+        }
+    )
+    catalog = Catalog(Database(settings.database_path), settings, extractor)
+    catalog.ingest_file(camera, "camera")
+    catalog.ingest_file(phone, "iphone-favorite", favorite=True)
+    catalog.ingest_file(later, "camera")
+    by_name = {item["filename"]: item for item in catalog.list_photos()}
+
+    catalog.set_editorial_flag(by_name[camera.name]["id"], "flagship")
+    catalog.set_editorial_flag(by_name[phone.name]["id"], "include")
+
+    filtered = catalog.list_photos(
+        source=["phone"],
+        favorite=True,
+        editorial_flags=["include", "candidate"],
+        date_from="2024-01-01",
+        date_to="2024-12-31",
+    )
+    assert [item["filename"] for item in filtered] == [phone.name]
+    flag_or_unflagged = {
+        item["filename"]
+        for item in catalog.list_photos(editorial_flags=["flagship", "unflagged"])
+    }
+    assert flag_or_unflagged == {camera.name, later.name}
+    both_sources = {
+        item["filename"] for item in catalog.list_photos(source=["camera", "phone"])
+    }
+    assert both_sources == {camera.name, phone.name, later.name}
+    assert {
+        item["filename"]
+        for item in catalog.list_photos(date_from="2024-01-01", date_to="2024-12-31")
+    } == {camera.name, phone.name}
+
+    catalog.set_editorial_flag(by_name[phone.name]["id"], None)
+    assert catalog.list_photos(editorial_flags=["include"]) == []
+    assert {
+        item["filename"] for item in catalog.list_photos(editorial_flags=["unflagged"])
+    } == {phone.name, later.name}
+    with pytest.raises(ValueError):
+        catalog.set_editorial_flag(by_name[camera.name]["id"], "maybe")
+    with pytest.raises(KeyError):
+        catalog.set_editorial_flag(9999, "candidate")

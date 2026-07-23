@@ -9,7 +9,9 @@ import shutil
 import threading
 import time
 import uuid
+from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
@@ -37,6 +39,15 @@ class MagazineUpdate(BaseModel):
 
 class TagsUpdate(BaseModel):
     tags: list[str]
+
+
+EditorialFlag = Literal["flagship", "include", "candidate", "one_of"]
+EditorialFlagFilter = Literal["flagship", "include", "candidate", "one_of", "unflagged"]
+PhotoSourceFilter = Literal["camera", "phone"]
+
+
+class EditorialFlagUpdate(BaseModel):
+    flag: EditorialFlag | None
 
 
 class VariantDecision(BaseModel):
@@ -203,7 +214,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def photos(
         limit: int = Query(100, ge=1, le=500),
         offset: int = Query(0, ge=0),
-        source: str | None = None,
+        source: list[PhotoSourceFilter] = Query(default=[]),
         favorite: bool | None = None,
         issue: str | None = None,
         magazine_status: str | None = None,
@@ -211,11 +222,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tag: str | None = None,
         year: int | None = Query(None, ge=1900, le=2200),
         include_nonpreferred: bool = False,
+        flag: list[EditorialFlagFilter] = Query(default=[]),
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> list[dict]:
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(400, "Start date must be on or before end date")
         return catalog.list_photos(
             limit=limit,
             offset=offset,
-            source=source,
+            source=source or None,
             favorite=favorite,
             issue=issue,
             magazine_status=magazine_status,
@@ -223,6 +239,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tag=tag,
             year=year,
             include_nonpreferred=include_nonpreferred,
+            editorial_flags=flag,
+            date_from=date_from.isoformat() if date_from else None,
+            date_to=date_to.isoformat() if date_to else None,
         )
 
     def local_or_restored(photo_id: int) -> tuple[dict, Path]:
@@ -332,6 +351,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Photo not found")
         hosted_mutation(lambda: catalog.set_tags(photo_id, update.tags))
         return {"status": "updated"}
+
+    @app.put("/api/photos/{photo_id}/flag")
+    def editorial_flag(
+        photo_id: int, update: EditorialFlagUpdate
+    ) -> dict[str, str | None]:
+        try:
+            hosted_mutation(lambda: catalog.set_editorial_flag(photo_id, update.flag))
+        except KeyError as error:
+            raise HTTPException(404, "Photo not found") from error
+        return {"status": "updated", "flag": update.flag}
 
     @app.get("/api/variant-groups")
     def variant_groups(status: str = "pending") -> list[dict]:

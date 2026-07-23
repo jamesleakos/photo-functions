@@ -13,6 +13,9 @@ from .database import Database
 from .metadata import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS, MetadataExtractor, PhotoMetadata
 
 
+EDITORIAL_FLAGS = frozenset({"flagship", "include", "candidate", "one_of"})
+
+
 @dataclass
 class ImportReport:
     scanned: int = 0
@@ -466,7 +469,7 @@ class Catalog:
         *,
         limit: int = 100,
         offset: int = 0,
-        source: str | None = None,
+        source: str | Iterable[str] | None = None,
         favorite: bool | None = None,
         issue: str | None = None,
         magazine_status: str | None = None,
@@ -474,6 +477,9 @@ class Catalog:
         tag: str | None = None,
         year: int | None = None,
         include_nonpreferred: bool = True,
+        editorial_flags: Iterable[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         parameters: list[Any] = []
@@ -483,10 +489,40 @@ class Catalog:
                    OR vg.preferred_photo_id = p.id)"""
             )
         if source:
+            source_values = [source] if isinstance(source, str) else list(source)
+            normalized_sources = {value.strip().lower() for value in source_values if value.strip()}
+            source_kinds: list[str] = []
+            if "camera" in normalized_sources:
+                source_kinds.append(
+                    """(LOWER(sx.source) = 'camera'
+                        OR LOWER(sx.source) LIKE 'camera-%'
+                        OR LOWER(sx.source) LIKE 'gopro%'
+                        OR LOWER(sx.source) LIKE 'drone%')"""
+                )
+            if "phone" in normalized_sources:
+                source_kinds.append(
+                    """(LOWER(sx.source) IN ('phone', 'iphone', 'iphone-favorite')
+                        OR LOWER(sx.source) LIKE 'phone-%'
+                        OR LOWER(sx.source) LIKE 'iphone-%')"""
+                )
+            if not source_kinds:
+                source_kinds.append("LOWER(sx.source) IN ({})".format(
+                    ",".join("?" for _ in normalized_sources)
+                ))
+                parameters.extend(sorted(normalized_sources))
             clauses.append(
-                "EXISTS (SELECT 1 FROM locations sx WHERE sx.photo_id = p.id AND sx.source = ?)"
+                f"""EXISTS (
+                    SELECT 1 FROM locations sx
+                    WHERE ({" OR ".join(source_kinds)}) AND (
+                        sx.photo_id = p.id OR (
+                            vg.review_status = 'confirmed' AND sx.photo_id IN (
+                                SELECT sibling.photo_id FROM variant_members sibling
+                                WHERE sibling.group_id = vm.group_id
+                            )
+                        )
+                    )
+                )"""
             )
-            parameters.append(source)
         if favorite is not None:
             clauses.append(
                 """EXISTS (
@@ -521,6 +557,27 @@ class Catalog:
         if year is not None:
             clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 4) = ?")
             parameters.append(str(year))
+        if date_from:
+            clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 10) >= ?")
+            parameters.append(date_from)
+        if date_to:
+            clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 10) <= ?")
+            parameters.append(date_to)
+        selected_flags = set(editorial_flags or [])
+        invalid_flags = selected_flags - EDITORIAL_FLAGS - {"unflagged"}
+        if invalid_flags:
+            raise ValueError(f"Invalid editorial flags: {', '.join(sorted(invalid_flags))}")
+        if selected_flags:
+            flag_clauses: list[str] = []
+            stored_flags = sorted(selected_flags & EDITORIAL_FLAGS)
+            if stored_flags:
+                flag_clauses.append(
+                    f"ef.flag IN ({','.join('?' for _ in stored_flags)})"
+                )
+                parameters.extend(stored_flags)
+            if "unflagged" in selected_flags:
+                flag_clauses.append("ef.flag IS NULL")
+            clauses.append(f"({' OR '.join(flag_clauses)})")
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
         parameters.extend([min(max(limit, 1), 500), max(offset, 0)])
         with self.database.connect() as connection:
@@ -535,11 +592,18 @@ class Catalog:
                             ))
                         )
                     ) favorite,
-                    (SELECT group_concat(DISTINCT source) FROM locations s WHERE s.photo_id = p.id) sources,
+                    (SELECT group_concat(DISTINCT source) FROM locations s
+                     WHERE s.photo_id = p.id OR (
+                        vg.review_status = 'confirmed' AND s.photo_id IN (
+                            SELECT sibling.photo_id FROM variant_members sibling
+                            WHERE sibling.group_id = vm.group_id
+                        )
+                     )) sources,
                     (SELECT path FROM locations l WHERE l.photo_id = p.id AND l.available = 1 LIMIT 1) local_path,
                     vg.id variant_group_id, vg.preferred_photo_id, vg.review_status variant_status,
                     b.status backup_status, b.object_key,
                     ms.issue magazine_issue, ms.status magazine_status, ms.notes magazine_notes,
+                    ef.flag editorial_flag,
                     (SELECT group_concat(t.name, ', ') FROM photo_tags pt JOIN tags t ON t.id = pt.tag_id
                      WHERE pt.photo_id = p.id) tags,
                     (SELECT group_concat(t.name, ', ') FROM photo_tags pt JOIN tags t ON t.id = pt.tag_id
@@ -549,7 +613,9 @@ class Catalog:
                 LEFT JOIN variant_members vm ON vm.photo_id = p.id
                 LEFT JOIN variant_groups vg ON vg.id = vm.group_id
                 LEFT JOIN backups b ON b.photo_id = p.id AND b.backend = ?
-                LEFT JOIN magazine_selections ms ON ms.photo_id = p.id {where}
+                LEFT JOIN magazine_selections ms ON ms.photo_id = p.id
+                LEFT JOIN editorial_flags ef ON ef.photo_id = p.id
+                {where}
                 GROUP BY p.id
                 ORDER BY COALESCE(p.captured_at, p.added_at) DESC, p.id DESC
                 LIMIT ? OFFSET ?""",
@@ -643,6 +709,28 @@ class Catalog:
             )
             connection.commit()
 
+    def set_editorial_flag(self, photo_id: int, flag: str | None) -> None:
+        normalized = flag.strip().lower() if flag else None
+        if normalized and normalized not in EDITORIAL_FLAGS:
+            raise ValueError("Invalid editorial flag")
+        with self.database.transaction() as connection:
+            if not connection.execute(
+                "SELECT 1 FROM photos WHERE id = ?", (photo_id,)
+            ).fetchone():
+                raise KeyError(photo_id)
+            if normalized:
+                connection.execute(
+                    """INSERT INTO editorial_flags(photo_id, flag)
+                       VALUES (?, ?)
+                       ON CONFLICT(photo_id) DO UPDATE SET
+                         flag = excluded.flag, updated_at = CURRENT_TIMESTAMP""",
+                    (photo_id, normalized),
+                )
+            else:
+                connection.execute(
+                    "DELETE FROM editorial_flags WHERE photo_id = ?", (photo_id,)
+                )
+
     def set_tags(self, photo_id: int, tags: Iterable[str]) -> None:
         normalized = sorted(
             {
@@ -722,7 +810,9 @@ class Catalog:
                        pending_variants,
                    COALESCE(SUM(CASE WHEN ms.status IN ('candidate', 'selected', 'placed')
                        THEN 1 ELSE 0 END), 0)
-                       magazine_photos
+                       magazine_photos,
+                   (SELECT COUNT(*) FROM editorial_flags) flagged_photos,
+                   (SELECT COUNT(*) FROM editorial_flags WHERE flag = 'one_of') one_of_photos
                    FROM photos p
                    LEFT JOIN backups b ON b.photo_id = p.id AND b.backend = ?
                    LEFT JOIN variant_members vm ON vm.photo_id = p.id

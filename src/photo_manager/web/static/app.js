@@ -34,31 +34,51 @@ async function loadStats() {
   const backedUp = stats.backed_up || 0;
   $("#stats").innerHTML = `
     <div class="stat"><strong>${stats.photos || 0}</strong><span>cataloged originals</span></div>
-    <div class="stat"><strong>${formatBytes(stats.bytes || 0)}</strong><span>source material</span></div>
     <div class="stat"><strong>${backedUp}</strong><span>safely backed up</span></div>
-    <div class="stat"><strong>${stats.magazine_photos || 0}</strong><span>magazine picks</span></div>`;
+    <div class="stat"><strong>${stats.flagged_photos || 0}</strong><span>editorially flagged</span></div>
+    <div class="stat one-of-stat"><strong>${stats.one_of_photos || 0}</strong><span>in the “one of” shortlist</span></div>`;
+}
+
+const flagLabels = {
+  flagship: "Flagship",
+  include: "Include",
+  candidate: "Candidate",
+  one_of: "One of",
+};
+
+function selectedValues(name) {
+  return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`))
+    .map(input => input.value);
+}
+
+function sourceLabel(sources) {
+  const value = String(sources || "").toLowerCase();
+  const camera = value.includes("camera") || value.includes("gopro") || value.includes("drone");
+  const phone = value.includes("phone") || value.includes("iphone");
+  if (camera && phone) return "Camera + phone";
+  if (phone) return "Phone";
+  if (camera) return "Camera";
+  return "Archive";
 }
 
 function photoCard(photo) {
   const megapixels = photo.width && photo.height ? `${(photo.width * photo.height / 1e6).toFixed(1)} MP` : "Unknown size";
-  const candidate = photo.magazine_status === "candidate";
-  const selected = photo.magazine_status === "selected";
-  return `<article class="photo-card">
+  const activeFlag = photo.editorial_flag || "";
+  const flagButtons = Object.entries(flagLabels).map(([flag, label]) => `
+    <button class="flag-button flag-${flag.replace("_", "-")} ${activeFlag === flag ? "active" : ""}"
+      type="button" aria-pressed="${activeFlag === flag}"
+      onclick="setEditorialFlag(${photo.id}, '${flag}')">${label}</button>`).join("");
+  return `<article class="photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}" data-photo-id="${photo.id}">
     <a class="photo-image" href="/api/photos/${photo.id}/original" target="_blank" rel="noopener">
       <img loading="lazy" src="/api/photos/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename)}">
-      <span class="pill">${photo.backup_status === "uploaded" ? "Backed up" : "Local"}</span>
-      ${photo.favorite ? '<span class="pill favorite">Favorite</span>' : ""}
+      <span class="source-label">${sourceLabel(photo.sources)}</span>
+      ${photo.favorite ? '<span class="favorite-mark" title="Favourited">♥</span>' : ""}
+      ${activeFlag ? `<span class="editorial-badge flag-${activeFlag.replace("_", "-")}">${flagLabels[activeFlag]}</span>` : ""}
     </a>
     <div class="photo-info">
       <div class="photo-title"><strong title="${escapeHtml(photo.filename)}">${escapeHtml(photo.filename)}</strong><span>${megapixels}</span></div>
       <p class="photo-meta">${photo.captured_at ? photo.captured_at.slice(0, 10) : "No date"} · ${formatBytes(photo.size_bytes)}</p>
-      <div class="card-actions">
-        <button class="${candidate ? "active" : ""}" onclick="setMagazine(${photo.id}, 'candidate')">Candidate</button>
-        <button class="${selected ? "active" : ""}" onclick="setMagazine(${photo.id}, 'selected')">Selected</button>
-        <button onclick="setMagazine(${photo.id}, 'placed')">Placed</button>
-        <button onclick="editTags(${photo.id}, '${escapeAttribute(photo.user_tags || "")}')">Tags</button>
-      </div>
-      ${photo.tags ? `<div class="tag-row">${escapeHtml(photo.tags)}</div>` : ""}
+      <div class="flag-controls" aria-label="Editorial flag">${flagButtons}</div>
     </div>
   </article>`;
 }
@@ -66,46 +86,61 @@ function photoCard(photo) {
 function escapeHtml(value) {
   return String(value).replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[char]);
 }
-function escapeAttribute(value) { return escapeHtml(value).replace(/'/g, "&#39;"); }
+function renderPhotos() {
+  $("#photo-grid").innerHTML = state.photos.map(photoCard).join("");
+  $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
+}
+
+function updateFilterSummary() {
+  const flagCount = selectedValues("flag-filter").length;
+  const sourceCount = selectedValues("source-filter").length;
+  const hasDates = Boolean($("#date-from").value || $("#date-to").value);
+  const favorite = $("#favorites-filter").checked;
+  const activeCount = flagCount + sourceCount + Number(hasDates) + Number(favorite);
+  $("#filter-count").textContent = activeCount ? `${activeCount} active filter${activeCount === 1 ? "" : "s"} ·` : "All";
+}
 
 async function loadPhotos(reset = true) {
   if (reset) state.offset = 0;
-  const status = $("#status-filter").value;
   const params = new URLSearchParams({ limit: String(state.pageSize), offset: String(state.offset) });
-  if (status === "not_uploaded") params.set("backup_status", status);
-  else if (status) {
-    params.set("magazine_status", status);
-    params.set("issue", $("#issue-input").value.trim());
-  }
+  selectedValues("flag-filter").forEach(flag => params.append("flag", flag));
+  selectedValues("source-filter").forEach(source => params.append("source", source));
   if ($("#favorites-filter").checked) params.set("favorite", "true");
-  const year = $("#year-filter").value.trim();
-  if (year) params.set("year", year);
+  const dateFrom = $("#date-from").value;
+  const dateTo = $("#date-to").value;
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    showToast("The start date must be before the end date.");
+    return;
+  }
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
   const page = await api(`/api/photos?${params}`);
   state.photos = reset ? page : state.photos.concat(page);
   state.offset = state.photos.length;
-  $("#photo-grid").innerHTML = state.photos.map(photoCard).join("");
-  $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
+  renderPhotos();
   $("#load-more").classList.toggle("hidden", page.length < state.pageSize);
+  updateFilterSummary();
 }
 
-async function setMagazine(photoId, status) {
-  const issue = $("#issue-input").value.trim();
-  if (!issue) return showToast("Add a magazine issue name first.");
+async function setEditorialFlag(photoId, flag) {
+  const photo = state.photos.find(item => item.id === photoId);
+  if (!photo) return;
+  const nextFlag = photo.editorial_flag === flag ? null : flag;
   try {
-    await api(`/api/photos/${photoId}/magazine`, { method: "PUT", body: JSON.stringify({ issue, status }) });
-    showToast(`Marked ${status} for ${issue}.`);
-    await Promise.all([loadPhotos(), loadStats()]);
-  } catch (error) { showToast(error.message); }
-}
-
-async function editTags(photoId, existing) {
-  const value = window.prompt("Comma-separated tags", existing);
-  if (value === null) return;
-  try {
-    const tags = value.split(",").map(tag => tag.trim()).filter(Boolean);
-    await api(`/api/photos/${photoId}/tags`, { method: "PUT", body: JSON.stringify({ tags }) });
-    await loadPhotos();
-    showToast("Tags updated.");
+    await api(`/api/photos/${photoId}/flag`, {
+      method: "PUT",
+      body: JSON.stringify({ flag: nextFlag }),
+    });
+    photo.editorial_flag = nextFlag;
+    const activeFilters = selectedValues("flag-filter");
+    const effectiveFlag = nextFlag || "unflagged";
+    if (activeFilters.length && !activeFilters.includes(effectiveFlag)) {
+      state.photos = state.photos.filter(item => item.id !== photoId);
+      state.offset = state.photos.length;
+    }
+    renderPhotos();
+    await loadStats();
+    showToast(nextFlag ? `Flagged as ${flagLabels[nextFlag]}.` : "Flag removed.");
   } catch (error) { showToast(error.message); }
 }
 
@@ -179,10 +214,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#library-view").classList.toggle("hidden", tab.dataset.view !== "library");
     $("#duplicates-view").classList.toggle("hidden", tab.dataset.view !== "duplicates");
   }));
-  $("#status-filter").addEventListener("change", () => loadPhotos());
-  $("#favorites-filter").addEventListener("change", () => loadPhotos());
-  $("#year-filter").addEventListener("change", () => loadPhotos());
-  $("#issue-input").addEventListener("change", () => loadPhotos());
+  document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], #favorites-filter')
+    .forEach(input => input.addEventListener("change", () => loadPhotos()));
+  $("#date-from").addEventListener("change", () => loadPhotos());
+  $("#date-to").addEventListener("change", () => loadPhotos());
+  $("#clear-filters").addEventListener("click", () => {
+    document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], #favorites-filter')
+      .forEach(input => { input.checked = false; });
+    $("#date-from").value = "";
+    $("#date-to").value = "";
+    loadPhotos();
+  });
   $("#backup-button").addEventListener("click", runBackup);
   $("#upload-input").addEventListener("change", event => uploadFiles(event.target.files));
   $("#load-more").addEventListener("click", () => loadPhotos(false));
@@ -196,6 +238,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   catch (error) { showToast(error.message); }
 });
 
-window.setMagazine = setMagazine;
-window.editTags = editTags;
+window.setEditorialFlag = setEditorialFlag;
 window.decideGroup = decideGroup;

@@ -35,6 +35,7 @@ flowchart LR
 - `backups`: provider/object/status records for logical photos
 - `tags` and `photo_tags`: general-purpose classification
 - `magazine_selections`: per-issue editorial status and notes
+- `editorial_flags`: the current flagship, include, candidate, or one-of decision for each photo
 
 SQLite runs in WAL mode. Each backup uses SQLite's online backup API to produce a consistent catalog snapshot.
 
@@ -76,4 +77,3 @@ Running independent local and hosted catalogs against one bucket is not supporte
 - Search by EXIF, date, location, people, and semantic embedding
 - Non-destructive edit/version relationships and sidecar preservation
 - Magazine layout integration and delivery manifests
-

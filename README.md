@@ -1,6 +1,6 @@
 # Photo Manager
 
-A catalog-first photo archive for camera originals and iPhone Favorites. It runs as a local browser app or the same Dockerized service on a server, stores originals in local or S3-compatible object storage, detects exact duplicates and likely lower-resolution variants, and tracks magazine selections without modifying source files.
+A catalog-first photo archive for camera originals and iPhone Favorites. It runs as a local browser app or the same Dockerized service on a server, stores originals in local or S3-compatible object storage, detects exact duplicates and likely lower-resolution variants, and tracks editorial flags without modifying source files.
 
 The original one-off scripts remain in `src/` for compatibility. New work lives in the `photo_manager` package and is intentionally non-destructive.
 
@@ -12,8 +12,8 @@ The original one-off scripts remain in `src/` for compatibility. New work lives 
 - Conservative variant matching using perceptual similarity, capture time, filename, and aspect ratio
 - High-resolution master recommendation with side-by-side review for ambiguous matches
 - Content-addressed, checksum-verified backup to a local archive or any S3-compatible provider
-- Consistent catalog snapshot on every backup, protecting tags and magazine decisions too
-- Browser gallery, original download, thumbnails, tags, magazine issue workflow, uploads, and backup controls
+- Consistent catalog snapshot on every backup, protecting editorial decisions too
+- Browser gallery, original download, thumbnails, editorial flags, combined filters, uploads, and backup controls
 - Optional HTTP Basic authentication and a Docker image for deployment
 
 The app never deletes source photos. Confirmed lower-resolution variants are excluded from future backup, but existing cloud objects are not automatically pruned.
@@ -69,7 +69,7 @@ It sizes Favorites before download, processes small resumable batches, uploads a
 photo-manager serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Review uncertain variants under **Duplicate review**, then mark photos as candidate, selected, placed, or rejected for a named magazine issue. General comma-separated tags are also supported.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Review uncertain variants under **Duplicate review**, then flag photos as **Flagship**, **Include**, **Candidate**, or **One of**. “One of” is a shared shortlist and can be applied to any number of alternatives. The flag, source, favourite, and captured-date filters compose with one another.
 
 ### 4. Back up
 

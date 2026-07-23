@@ -29,6 +29,34 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     selected = client.get("/api/photos", params={"issue": "Winter 2026"}).json()
     assert selected[0]["magazine_status"] == "candidate"
 
+    flagged = client.put(
+        f"/api/photos/{catalog_id}/flag",
+        json={"flag": "one_of"},
+    )
+    assert flagged.status_code == 200
+    assert flagged.json()["flag"] == "one_of"
+    filtered = client.get("/api/photos", params={"flag": ["flagship", "one_of"]})
+    assert [item["id"] for item in filtered.json()] == [catalog_id]
+    assert filtered.json()[0]["editorial_flag"] == "one_of"
+    assert client.put(f"/api/photos/{catalog_id}/flag", json={"flag": None}).status_code == 200
+    assert client.get("/api/photos", params={"flag": "unflagged"}).json()[0]["id"] == catalog_id
+
+    index = client.get("/")
+    assert "Flagship" in index.text
+    assert "Favourited" in index.text
+    assert "Working magazine issue" not in index.text
+
+
+def test_photo_filter_rejects_reversed_date_range(settings):
+    client = TestClient(create_app(settings))
+
+    response = client.get(
+        "/api/photos",
+        params={"date_from": "2025-01-01", "date_to": "2024-01-01"},
+    )
+
+    assert response.status_code == 400
+
 
 def test_video_gets_placeholder_thumbnail(tmp_path, settings):
     video_path = tmp_path / "clip.mov"

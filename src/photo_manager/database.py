@@ -94,6 +94,15 @@ CREATE TABLE IF NOT EXISTS magazine_selections (
 
 CREATE INDEX IF NOT EXISTS idx_magazine_issue_status
 ON magazine_selections(issue, status);
+
+CREATE TABLE IF NOT EXISTS editorial_flags (
+    photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+    flag TEXT NOT NULL CHECK(flag IN ('flagship', 'include', 'candidate', 'one_of')),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_editorial_flags_flag
+ON editorial_flags(flag);
 """
 
 

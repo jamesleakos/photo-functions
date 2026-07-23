@@ -34,27 +34,79 @@
     </nav>
 
     <section id="library-view">
-      <div class="toolbar">
-        <div class="field issue-field">
-          <label for="issue-input">Working magazine issue</label>
-          <input id="issue-input" value="Next issue" autocomplete="off">
+      <section class="filter-panel" aria-label="Library filters">
+        <div class="filter-heading">
+          <div>
+            <p class="eyebrow">FILTER LIBRARY</p>
+            <p class="filter-summary"><span id="filter-count">All</span> photos shown by date</p>
+          </div>
+          <button id="clear-filters" class="text-button" type="button">Clear filters</button>
         </div>
-        <div class="field">
-          <label for="status-filter">Show</label>
-          <select id="status-filter">
-            <option value="">All photos</option>
-            <option value="candidate">Magazine candidates</option>
-            <option value="selected">Selected</option>
-            <option value="placed">Placed</option>
-            <option value="not_uploaded">Needs backup</option>
-          </select>
+
+        <div class="filter-grid">
+          <fieldset class="filter-group flag-filter-group">
+            <legend>Editorial flag</legend>
+            <div class="filter-options">
+              <label class="filter-chip flag-flagship">
+                <input type="checkbox" name="flag-filter" value="flagship">
+                <span>Flagship</span>
+              </label>
+              <label class="filter-chip flag-include">
+                <input type="checkbox" name="flag-filter" value="include">
+                <span>Include</span>
+              </label>
+              <label class="filter-chip flag-candidate">
+                <input type="checkbox" name="flag-filter" value="candidate">
+                <span>Candidate</span>
+              </label>
+              <label class="filter-chip flag-one-of">
+                <input type="checkbox" name="flag-filter" value="one_of">
+                <span>One of</span>
+              </label>
+              <label class="filter-chip flag-unflagged">
+                <input type="checkbox" name="flag-filter" value="unflagged">
+                <span>Unflagged</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="filter-group source-filter-group">
+            <legend>Source</legend>
+            <div class="filter-options">
+              <label class="filter-chip">
+                <input type="checkbox" name="source-filter" value="camera">
+                <span>Camera</span>
+              </label>
+              <label class="filter-chip">
+                <input type="checkbox" name="source-filter" value="phone">
+                <span>Phone</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="filter-group date-filter-group">
+            <legend>Captured</legend>
+            <div class="date-range">
+              <label for="date-from">From</label>
+              <input id="date-from" type="date">
+              <span aria-hidden="true">—</span>
+              <label for="date-to">To</label>
+              <input id="date-to" type="date">
+            </div>
+          </fieldset>
+
+          <fieldset class="filter-group favorite-filter-group">
+            <legend>Favourite</legend>
+            <label class="filter-chip favorite-filter">
+              <input id="favorites-filter" type="checkbox">
+              <span>Favourited</span>
+            </label>
+          </fieldset>
         </div>
-        <div class="field compact-field">
-          <label for="year-filter">Year</label>
-          <input id="year-filter" type="number" min="1900" max="2200" value="2024" inputmode="numeric">
-        </div>
-        <label class="check"><input id="favorites-filter" type="checkbox"> iPhone favorites only</label>
-      </div>
+
+        <p class="one-of-note"><strong>One of</strong> is a shared shortlist—flag as many alternatives as you like, then choose one for the magazine later.</p>
+      </section>
+
       <div id="photo-grid" class="photo-grid"></div>
       <div class="load-more-wrap"><button id="load-more" class="button secondary hidden">Load more</button></div>
       <div id="empty-library" class="empty hidden">
