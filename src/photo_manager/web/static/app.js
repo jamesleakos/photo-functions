@@ -91,8 +91,8 @@ function flagButtons(photo, context = "card") {
 
 function photoCard(photo) {
   const activeFlag = photo.editorial_flag || "";
-  const capturedDate = photo.captured_at ? photo.captured_at.slice(0, 10) : "";
-  const sourceAndDate = `${sourceLabel(photo.sources)}${capturedDate ? ` · ${capturedDate}` : ""}`;
+  const capturedDate = photo.captured_at ? photo.captured_at.slice(0, 10) : "Date unavailable";
+  const sourceAndDate = `${sourceLabel(photo.sources)} · ${capturedDate}`;
   return `<article class="photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}" data-photo-id="${photo.id}">
     <button class="photo-image" type="button" onclick="openPhotoViewer(${photo.id})"
       aria-label="View ${escapeHtml(photo.filename)} full screen" title="${escapeHtml(photo.filename)}">
@@ -159,6 +159,7 @@ function updateFilterSummary() {
 async function loadPhotos(reset = true) {
   if (reset) state.offset = 0;
   const params = new URLSearchParams({ limit: String(state.pageSize), offset: String(state.offset) });
+  params.set("date_order", $("#date-sort").value);
   selectedValues("flag-filter").forEach(flag => params.append("flag", flag));
   selectedValues("source-filter").forEach(source => params.append("source", source));
   selectedValues("media-filter").forEach(media => params.append("media", media));
@@ -294,6 +295,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     .forEach(input => input.addEventListener("change", () => loadPhotos()));
   $("#date-from").addEventListener("change", () => loadPhotos());
   $("#date-to").addEventListener("change", () => loadPhotos());
+  $("#date-sort").addEventListener("change", () => loadPhotos());
   $("#clear-filters").addEventListener("click", () => {
     document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
       .forEach(input => { input.checked = false; });

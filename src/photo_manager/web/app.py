@@ -47,6 +47,7 @@ EditorialFlagFilter = Literal[
 ]
 PhotoSourceFilter = Literal["camera", "phone"]
 MediaFilter = Literal["photo", "video"]
+DateOrder = Literal["asc", "desc"]
 
 
 class EditorialFlagUpdate(BaseModel):
@@ -229,6 +230,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         media: list[MediaFilter] = Query(default=[]),
         date_from: date | None = None,
         date_to: date | None = None,
+        date_order: DateOrder = "desc",
     ) -> list[dict]:
         if date_from and date_to and date_from > date_to:
             raise HTTPException(400, "Start date must be on or before end date")
@@ -247,6 +249,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media=media or None,
             date_from=date_from.isoformat() if date_from else None,
             date_to=date_to.isoformat() if date_to else None,
+            date_order=date_order,
         )
 
     def local_or_restored(photo_id: int) -> tuple[dict, Path]:

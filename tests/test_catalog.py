@@ -246,6 +246,40 @@ def test_editorial_flags_and_filters_combine_across_dimensions(tmp_path, setting
         catalog.set_editorial_flag(9999, "candidate")
 
 
+def test_photo_date_order_keeps_missing_capture_dates_last(tmp_path, settings):
+    oldest = tmp_path / "oldest.jpg"
+    newest = tmp_path / "newest.jpg"
+    unknown = tmp_path / "unknown.jpg"
+    oldest.write_bytes(b"oldest photo")
+    newest.write_bytes(b"newest photo")
+    unknown.write_bytes(b"photo with no embedded capture date")
+    extractor = FixedExtractor(
+        {
+            oldest.name: metadata(6000, 4000, "0000000000000000", "2024-01-02T09:00:00"),
+            newest.name: metadata(6000, 4000, "5555555555555555", "2025-12-30T17:00:00"),
+            unknown.name: metadata(1200, 900, "aaaaaaaaaaaaaaaa", None),
+        }
+    )
+    catalog = Catalog(Database(settings.database_path), settings, extractor)
+    catalog.ingest_file(oldest, "camera")
+    catalog.ingest_file(newest, "camera")
+    catalog.ingest_file(unknown, "iphone-favorite", favorite=True)
+
+    assert [item["filename"] for item in catalog.list_photos(date_order="desc")] == [
+        newest.name,
+        oldest.name,
+        unknown.name,
+    ]
+    assert [item["filename"] for item in catalog.list_photos(date_order="asc")] == [
+        oldest.name,
+        newest.name,
+        unknown.name,
+    ]
+    assert catalog.list_photos(date_from="2026-01-01") == []
+    with pytest.raises(ValueError):
+        catalog.list_photos(date_order="sideways")
+
+
 def test_photo_and_video_filters_allow_either_or_both(tmp_path, settings):
     photo = tmp_path / "still.jpg"
     video = tmp_path / "clip.mov"

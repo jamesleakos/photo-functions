@@ -34,6 +34,7 @@
     </nav>
 
     <section id="library-view">
+      <div class="library-controls">
       <details class="filter-panel" aria-label="Library filters">
         <summary class="filter-heading">
           <p class="filter-summary"><strong>Filters</strong> · <span id="filter-count">All</span> photos shown by date</p>
@@ -122,6 +123,14 @@
           </div>
         </div>
       </details>
+        <label class="sort-control" for="date-sort">
+          <span>Sort</span>
+          <select id="date-sort" aria-label="Sort photos by capture date">
+            <option value="desc">Newest first</option>
+            <option value="asc">Oldest first</option>
+          </select>
+        </label>
+      </div>
 
       <div id="photo-grid" class="photo-grid"></div>
       <div class="load-more-wrap"><button id="load-more" class="button secondary hidden">Load more</button></div>

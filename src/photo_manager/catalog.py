@@ -483,9 +483,14 @@ class Catalog:
         media: str | Iterable[str] | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        date_order: str = "desc",
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         parameters: list[Any] = []
+        normalized_date_order = date_order.strip().lower()
+        if normalized_date_order not in {"asc", "desc"}:
+            raise ValueError("date_order must be 'asc' or 'desc'")
+        sql_date_order = normalized_date_order.upper()
         if not include_nonpreferred:
             clauses.append(
                 """(vg.review_status IS NULL OR vg.review_status != 'confirmed'
@@ -558,13 +563,13 @@ class Catalog:
             )
             parameters.append(tag)
         if year is not None:
-            clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 4) = ?")
+            clauses.append("substr(p.captured_at, 1, 4) = ?")
             parameters.append(str(year))
         if date_from:
-            clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 10) >= ?")
+            clauses.append("substr(p.captured_at, 1, 10) >= ?")
             parameters.append(date_from)
         if date_to:
-            clauses.append("substr(COALESCE(p.captured_at, p.added_at), 1, 10) <= ?")
+            clauses.append("substr(p.captured_at, 1, 10) <= ?")
             parameters.append(date_to)
         if media:
             media_values = [media] if isinstance(media, str) else list(media)
@@ -633,7 +638,9 @@ class Catalog:
                 LEFT JOIN editorial_flags ef ON ef.photo_id = p.id
                 {where}
                 GROUP BY p.id
-                ORDER BY COALESCE(p.captured_at, p.added_at) DESC, p.id DESC
+                ORDER BY p.captured_at IS NULL ASC,
+                         p.captured_at {sql_date_order},
+                         p.id {sql_date_order}
                 LIMIT ? OFFSET ?""",
                 [self.settings.storage_backend, *parameters],
             ).fetchall()

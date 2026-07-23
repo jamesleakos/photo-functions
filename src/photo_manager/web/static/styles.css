@@ -73,12 +73,43 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .tab { padding: .42rem .1rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: .74rem; font-weight: 700; }
 .tab.active { border-color: var(--accent); color: var(--ink); }
 
+.library-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .4rem;
+  align-items: start;
+}
 .filter-panel {
   margin-bottom: .45rem;
   padding: .45rem .55rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--card);
+}
+.sort-control {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: .25rem;
+  padding: .36rem .45rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+.sort-control span {
+  color: var(--muted);
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.sort-control select {
+  border: 0;
+  outline-offset: 3px;
+  background: transparent;
+  color: var(--ink);
+  font-size: .68rem;
+  font-weight: 750;
 }
 .filter-heading {
   display: flex;

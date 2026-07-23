@@ -55,6 +55,7 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert "Favourited" in index.text
     assert "Not included" in index.text
     assert 'name="media-filter"' in index.text
+    assert 'id="date-sort"' in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
     assert "Working magazine issue" not in index.text
@@ -69,6 +70,39 @@ def test_photo_filter_rejects_reversed_date_range(settings):
     )
 
     assert response.status_code == 400
+
+
+def test_photo_endpoint_sorts_by_capture_date(settings, tmp_path):
+    older_path = tmp_path / "older.jpg"
+    newer_path = tmp_path / "newer.jpg"
+    Image.new("RGB", (640, 480), "#b8472d").save(older_path)
+    Image.new("RGB", (640, 480), "#465d3c").save(newer_path)
+    app = create_app(settings)
+    app.state.catalog.ingest_file(older_path, "camera")
+    app.state.catalog.ingest_file(newer_path, "camera")
+    with app.state.catalog.database.connect() as connection:
+        connection.execute(
+            "UPDATE photos SET captured_at = ? WHERE filename = ?",
+            ("2024-03-01T12:00:00", older_path.name),
+        )
+        connection.execute(
+            "UPDATE photos SET captured_at = ? WHERE filename = ?",
+            ("2025-09-10T12:00:00", newer_path.name),
+        )
+    client = TestClient(app)
+
+    ascending = client.get("/api/photos", params={"date_order": "asc"})
+    descending = client.get("/api/photos", params={"date_order": "desc"})
+
+    assert [item["filename"] for item in ascending.json()] == [
+        older_path.name,
+        newer_path.name,
+    ]
+    assert [item["filename"] for item in descending.json()] == [
+        newer_path.name,
+        older_path.name,
+    ]
+    assert client.get("/api/photos", params={"date_order": "sideways"}).status_code == 422
 
 
 def test_video_gets_placeholder_thumbnail(tmp_path, settings):
