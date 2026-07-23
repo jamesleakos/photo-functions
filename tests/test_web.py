@@ -40,10 +40,20 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert filtered.json()[0]["editorial_flag"] == "one_of"
     assert client.put(f"/api/photos/{catalog_id}/flag", json={"flag": None}).status_code == 200
     assert client.get("/api/photos", params={"flag": "unflagged"}).json()[0]["id"] == catalog_id
+    excluded = client.put(
+        f"/api/photos/{catalog_id}/flag",
+        json={"flag": "not_included"},
+    )
+    assert excluded.status_code == 200
+    assert client.get("/api/photos", params={"flag": "not_included"}).json()[0][
+        "editorial_flag"
+    ] == "not_included"
+    assert client.put(f"/api/photos/{catalog_id}/flag", json={"flag": None}).status_code == 200
 
     index = client.get("/")
     assert "Flagship" in index.text
     assert "Favourited" in index.text
+    assert "Not included" in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
     assert "Working magazine issue" not in index.text

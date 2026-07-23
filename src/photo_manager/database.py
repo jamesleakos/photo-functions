@@ -97,7 +97,9 @@ ON magazine_selections(issue, status);
 
 CREATE TABLE IF NOT EXISTS editorial_flags (
     photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
-    flag TEXT NOT NULL CHECK(flag IN ('flagship', 'include', 'candidate', 'one_of')),
+    flag TEXT NOT NULL CHECK(flag IN (
+        'flagship', 'include', 'candidate', 'one_of', 'not_included'
+    )),
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -121,6 +123,34 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate_editorial_flags(connection)
+
+    @staticmethod
+    def _migrate_editorial_flags(connection: sqlite3.Connection) -> None:
+        table = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'editorial_flags'"
+        ).fetchone()
+        if not table or "not_included" in table["sql"]:
+            return
+        connection.executescript(
+            """
+            BEGIN IMMEDIATE;
+            DROP INDEX IF EXISTS idx_editorial_flags_flag;
+            ALTER TABLE editorial_flags RENAME TO editorial_flags_legacy;
+            CREATE TABLE editorial_flags (
+                photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+                flag TEXT NOT NULL CHECK(flag IN (
+                    'flagship', 'include', 'candidate', 'one_of', 'not_included'
+                )),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO editorial_flags(photo_id, flag, updated_at)
+            SELECT photo_id, flag, updated_at FROM editorial_flags_legacy;
+            DROP TABLE editorial_flags_legacy;
+            CREATE INDEX idx_editorial_flags_flag ON editorial_flags(flag);
+            COMMIT;
+            """
+        )
 
     def snapshot(self, destination: Path | str) -> Path:
         """Create a consistent SQLite snapshot while the live catalog remains in use."""

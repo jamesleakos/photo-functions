@@ -142,6 +142,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .filter-chip.flag-include input:checked + span { border-color: #465d3c; background: #465d3c; }
 .filter-chip.flag-candidate input:checked + span { border-color: #ad6c16; background: #ad6c16; }
 .filter-chip.flag-one-of input:checked + span { border-color: #655a8b; background: #655a8b; }
+.filter-chip.flag-not-included input:checked + span { border-color: #575b60; background: #575b60; }
 .filter-chip.flag-unflagged input:checked + span { border-color: #7a7d77; background: #7a7d77; }
 .date-range { display: grid; grid-template-columns: auto minmax(110px, 1fr) auto auto minmax(110px, 1fr); gap: .25rem; align-items: center; }
 .date-range label { color: var(--muted); font-size: .6rem; font-weight: 700; }
@@ -162,6 +163,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .photo-card.flag-card-include { border-top-color: #465d3c; }
 .photo-card.flag-card-candidate { border-top-color: #ad6c16; }
 .photo-card.flag-card-one-of { border-style: dashed; border-color: #8880a8; }
+.photo-card.flag-card-not-included { border-top-color: #575b60; }
 .photo-image {
   position: relative;
   display: block;
@@ -195,9 +197,11 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .editorial-badge.flag-include { background: rgba(70, 93, 60, .92); }
 .editorial-badge.flag-candidate { background: rgba(173, 108, 22, .92); }
 .editorial-badge.flag-one-of { background: rgba(101, 90, 139, .92); }
+.editorial-badge.flag-not-included { background: rgba(87, 91, 96, .94); }
 .photo-info { padding: .28rem; }
-.flag-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: .2rem; }
+.flag-controls { display: grid; grid-template-columns: repeat(5, 1fr); gap: .2rem; }
 .flag-button {
+  min-height: 1.75rem;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -206,6 +210,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
   color: var(--muted);
   font-size: .58rem;
   font-weight: 780;
+  line-height: 1.05;
 }
 .flag-button:hover { border-color: #bcb5aa; background: #faf8f2; color: var(--ink); }
 .flag-button.active { color: white; }
@@ -214,6 +219,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .flag-button.flag-candidate.active { border-color: #ad6c16; background: #ad6c16; }
 .flag-button.flag-one-of { border-style: dashed; }
 .flag-button.flag-one-of.active { border-color: #655a8b; background: #655a8b; }
+.flag-button.flag-not-included.active { border-color: #575b60; background: #575b60; }
 .load-more-wrap { display: flex; justify-content: center; padding: .75rem 0; }
 
 .photo-viewer {
@@ -255,7 +261,7 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .viewer-close:hover { background: rgba(50, 50, 50, .9); }
 .viewer-flag-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: .35rem;
   width: min(100%, 560px);
   margin: 0 auto;

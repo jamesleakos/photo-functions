@@ -41,8 +41,10 @@ class TagsUpdate(BaseModel):
     tags: list[str]
 
 
-EditorialFlag = Literal["flagship", "include", "candidate", "one_of"]
-EditorialFlagFilter = Literal["flagship", "include", "candidate", "one_of", "unflagged"]
+EditorialFlag = Literal["flagship", "include", "candidate", "one_of", "not_included"]
+EditorialFlagFilter = Literal[
+    "flagship", "include", "candidate", "one_of", "not_included", "unflagged"
+]
 PhotoSourceFilter = Literal["camera", "phone"]
 
 

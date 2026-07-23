@@ -51,6 +51,15 @@ const flagLabels = {
   include: "Include",
   candidate: "Candidate",
   one_of: "One of",
+  not_included: "Not included",
+};
+
+const compactFlagLabels = {
+  flagship: "Flag",
+  include: "In",
+  candidate: "Maybe",
+  one_of: "1 of",
+  not_included: "Not in",
 };
 
 function selectedValues(name) {
@@ -70,11 +79,14 @@ function sourceLabel(sources) {
 
 function flagButtons(photo, context = "card") {
   const activeFlag = photo.editorial_flag || "";
-  return Object.entries(flagLabels).map(([flag, label]) => `
+  return Object.entries(flagLabels).map(([flag, label]) => {
+    const visibleLabel = context === "viewer" ? label : compactFlagLabels[flag];
+    return `
     <button class="flag-button flag-${flag.replace("_", "-")} ${activeFlag === flag ? "active" : ""}"
-      type="button" aria-pressed="${activeFlag === flag}"
+      type="button" aria-label="${label}" title="${label}" aria-pressed="${activeFlag === flag}"
       data-flag-context="${context}"
-      onclick="setEditorialFlag(${photo.id}, '${flag}')">${label}</button>`).join("");
+      onclick="setEditorialFlag(${photo.id}, '${flag}')">${visibleLabel}</button>`;
+  }).join("");
 }
 
 function photoCard(photo) {

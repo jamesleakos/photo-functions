@@ -236,6 +236,10 @@ def test_editorial_flags_and_filters_combine_across_dimensions(tmp_path, setting
     assert {
         item["filename"] for item in catalog.list_photos(editorial_flags=["unflagged"])
     } == {phone.name, later.name}
+    catalog.set_editorial_flag(by_name[later.name]["id"], "not_included")
+    excluded = catalog.list_photos(editorial_flags=["not_included"])
+    assert [item["filename"] for item in excluded] == [later.name]
+    assert excluded[0]["editorial_flag"] == "not_included"
     with pytest.raises(ValueError):
         catalog.set_editorial_flag(by_name[camera.name]["id"], "maybe")
     with pytest.raises(KeyError):

@@ -13,7 +13,9 @@ from .database import Database
 from .metadata import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS, MetadataExtractor, PhotoMetadata
 
 
-EDITORIAL_FLAGS = frozenset({"flagship", "include", "candidate", "one_of"})
+EDITORIAL_FLAGS = frozenset(
+    {"flagship", "include", "candidate", "one_of", "not_included"}
+)
 
 
 @dataclass
