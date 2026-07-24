@@ -6,6 +6,8 @@ const state = {
   hosted: false,
   viewerPhoto: null,
   viewerImageRequest: 0,
+  flagHistory: [],
+  undoInFlight: false,
 };
 const $ = (selector) => document.querySelector(selector);
 const viewerZoom = {
@@ -105,6 +107,13 @@ function flagButtons(photo, context = "card") {
   }).join("");
 }
 
+function editorialBadge(photo) {
+  const activeFlag = photo.editorial_flag || "";
+  return activeFlag
+    ? `<span class="editorial-badge flag-${activeFlag.replace("_", "-")}">${flagLabels[activeFlag]}</span>`
+    : "";
+}
+
 function photoCard(photo) {
   const activeFlag = photo.editorial_flag || "";
   const capturedDate = photo.captured_at ? photo.captured_at.slice(0, 10) : "Date unavailable";
@@ -115,7 +124,7 @@ function photoCard(photo) {
       <img loading="lazy" src="/api/photos/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename)}">
       <span class="source-label">${escapeHtml(sourceAndDate)}</span>
       ${photo.favorite ? '<span class="favorite-mark" title="Favourited">♥</span>' : ""}
-      ${activeFlag ? `<span class="editorial-badge flag-${activeFlag.replace("_", "-")}">${flagLabels[activeFlag]}</span>` : ""}
+      ${editorialBadge(photo)}
     </button>
     <div class="photo-info">
       <div class="flag-controls" aria-label="Editorial flag">${flagButtons(photo)}</div>
@@ -128,6 +137,56 @@ function escapeHtml(value) {
 }
 function renderPhotos() {
   $("#photo-grid").innerHTML = state.photos.map(photoCard).join("");
+  $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
+}
+
+function updateUndoButton() {
+  const button = $("#undo-flag-button");
+  if (!button) return;
+  const count = state.flagHistory.length;
+  button.textContent = count ? `Undo (${count})` : "Undo";
+  button.disabled = !count || state.undoInFlight;
+}
+
+function rememberFlagChange(photoId, previousFlag, nextFlag) {
+  state.flagHistory.push({ photoId, previousFlag, nextFlag });
+  if (state.flagHistory.length > 5) state.flagHistory.shift();
+  updateUndoButton();
+}
+
+function photoMatchesFlagFilters(flag) {
+  const activeFilters = selectedValues("flag-filter");
+  return !activeFilters.length || activeFilters.includes(flag || "unflagged");
+}
+
+function updatePhotoFlagPresentation(photo) {
+  const activeFlag = photo.editorial_flag || "";
+  const card = document.querySelector(`.photo-card[data-photo-id="${photo.id}"]`);
+  if (card) {
+    card.className = `photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}`.trim();
+    const controls = card.querySelector(".flag-controls");
+    if (controls) controls.innerHTML = flagButtons(photo);
+    const imageButton = card.querySelector(".photo-image");
+    const existingBadge = imageButton?.querySelector(".editorial-badge");
+    if (activeFlag && existingBadge) {
+      existingBadge.className = `editorial-badge flag-${activeFlag.replace("_", "-")}`;
+      existingBadge.textContent = flagLabels[activeFlag];
+    } else if (activeFlag && imageButton) {
+      imageButton.insertAdjacentHTML("beforeend", editorialBadge(photo));
+    } else {
+      existingBadge?.remove();
+    }
+  }
+  if (state.viewerPhoto?.id === photo.id) {
+    state.viewerPhoto.editorial_flag = photo.editorial_flag;
+    $("#viewer-flag-controls").innerHTML = flagButtons(photo, "viewer");
+  }
+}
+
+function removePhotoFromResults(photoId) {
+  document.querySelector(`.photo-card[data-photo-id="${photoId}"]`)?.remove();
+  state.photos = state.photos.filter(item => item.id !== photoId);
+  state.offset = state.photos.length;
   $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
 }
 
@@ -422,32 +481,62 @@ async function loadPhotos(reset = true) {
 }
 
 async function setEditorialFlag(photoId, flag) {
+  if (state.undoInFlight) return;
   const photo = state.photos.find(item => item.id === photoId)
     || (state.viewerPhoto && state.viewerPhoto.id === photoId ? state.viewerPhoto : null);
   if (!photo) return;
+  const previousFlag = photo.editorial_flag || null;
   const nextFlag = photo.editorial_flag === flag ? null : flag;
   try {
     await api(`/api/photos/${photoId}/flag`, {
       method: "PUT",
       body: JSON.stringify({ flag: nextFlag }),
     });
+    rememberFlagChange(photoId, previousFlag, nextFlag);
     photo.editorial_flag = nextFlag;
-    const activeFilters = selectedValues("flag-filter");
-    const effectiveFlag = nextFlag || "unflagged";
-    let removedFromResults = false;
-    if (activeFilters.length && !activeFilters.includes(effectiveFlag)) {
-      state.photos = state.photos.filter(item => item.id !== photoId);
-      state.offset = state.photos.length;
-      removedFromResults = true;
-    }
-    renderPhotos();
-    if (state.viewerPhoto && state.viewerPhoto.id === photoId) {
-      if (removedFromResults) closePhotoViewer();
-      else updatePhotoViewer();
+    if (photoMatchesFlagFilters(nextFlag)) {
+      updatePhotoFlagPresentation(photo);
+    } else {
+      removePhotoFromResults(photoId);
+      if (state.viewerPhoto?.id === photoId) closePhotoViewer();
     }
     await loadStats();
     showToast(nextFlag ? `Flagged as ${flagLabels[nextFlag]}.` : "Flag removed.");
   } catch (error) { showToast(error.message); }
+}
+
+async function undoLastFlag() {
+  if (!state.flagHistory.length || state.undoInFlight) return;
+  const change = state.flagHistory[state.flagHistory.length - 1];
+  state.undoInFlight = true;
+  updateUndoButton();
+  try {
+    await api(`/api/photos/${change.photoId}/flag`, {
+      method: "PUT",
+      body: JSON.stringify({ flag: change.previousFlag }),
+    });
+    state.flagHistory.pop();
+    const photo = state.photos.find(item => item.id === change.photoId)
+      || (state.viewerPhoto?.id === change.photoId ? state.viewerPhoto : null);
+    if (!photo) {
+      await loadPhotos();
+    } else {
+      photo.editorial_flag = change.previousFlag;
+      if (photoMatchesFlagFilters(change.previousFlag)) {
+        updatePhotoFlagPresentation(photo);
+      } else {
+        removePhotoFromResults(change.photoId);
+        if (state.viewerPhoto?.id === change.photoId) closePhotoViewer();
+      }
+    }
+    await loadStats();
+    showToast("Undid last flag change.");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    state.undoInFlight = false;
+    updateUndoButton();
+  }
 }
 
 function duplicateGroup(group) {
@@ -515,6 +604,7 @@ async function uploadFiles(files) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  $("#undo-flag-button").addEventListener("click", undoLastFlag);
   $("#viewer-close").addEventListener("click", closePhotoViewer);
   $("#viewer-prev").addEventListener("click", () => movePhotoViewer(-1));
   $("#viewer-next").addEventListener("click", () => movePhotoViewer(1));

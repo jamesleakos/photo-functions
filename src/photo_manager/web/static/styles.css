@@ -24,13 +24,19 @@ button { cursor: pointer; }
 form { margin: 0; }
 
 .topbar {
+  position: sticky;
+  z-index: 50;
+  top: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding: .65rem clamp(.65rem, 2vw, 1.5rem);
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 253, 248, .78);
+  background: rgba(255, 253, 248, .92);
+  box-shadow: 0 4px 16px rgba(49, 43, 31, .05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 h1, h2, p { margin-top: 0; }
@@ -51,6 +57,9 @@ h2 { font-family: Georgia, serif; font-weight: 500; }
 .button:hover { background: var(--accent-dark); }
 .button.secondary { background: transparent; color: var(--accent); }
 .button.secondary:hover { background: #fff4ee; }
+.button:disabled { cursor: default; opacity: .42; }
+.button:disabled:hover { background: var(--accent); }
+.button.secondary:disabled:hover { background: transparent; }
 .button.small { padding: .52rem .8rem; font-size: .82rem; }
 
 main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
