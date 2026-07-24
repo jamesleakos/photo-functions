@@ -762,7 +762,29 @@ class Catalog:
             )
             connection.commit()
 
-    def set_editorial_flag(self, photo_id: int, flag: str | None) -> None:
+    @staticmethod
+    def _current_one_of_group(connection: sqlite3.Connection) -> dict[str, Any]:
+        row = connection.execute(
+            """SELECT g.id, COUNT(m.photo_id) member_count
+               FROM one_of_groups g
+               LEFT JOIN one_of_group_members m ON m.group_id = g.id
+               WHERE g.status = 'open'
+               GROUP BY g.id
+               LIMIT 1"""
+        ).fetchone()
+        if not row:
+            return {"active": False, "group_id": None, "member_count": 0}
+        return {
+            "active": True,
+            "group_id": row["id"],
+            "member_count": row["member_count"],
+        }
+
+    def current_one_of_group(self) -> dict[str, Any]:
+        with self.database.connect() as connection:
+            return self._current_one_of_group(connection)
+
+    def set_editorial_flag(self, photo_id: int, flag: str | None) -> dict[str, Any]:
         normalized = flag.strip().lower() if flag else None
         if normalized and normalized not in EDITORIAL_FLAGS:
             raise ValueError("Invalid editorial flag")
@@ -771,6 +793,36 @@ class Catalog:
                 "SELECT 1 FROM photos WHERE id = ?", (photo_id,)
             ).fetchone():
                 raise KeyError(photo_id)
+            if normalized == "one_of":
+                group = connection.execute(
+                    "SELECT id FROM one_of_groups WHERE status = 'open' LIMIT 1"
+                ).fetchone()
+                if group:
+                    group_id = group["id"]
+                else:
+                    group_id = connection.execute(
+                        "INSERT INTO one_of_groups(status) VALUES ('open')"
+                    ).lastrowid
+                connection.execute(
+                    """INSERT OR IGNORE INTO one_of_group_members(group_id, photo_id)
+                       VALUES (?, ?)""",
+                    (group_id, photo_id),
+                )
+            else:
+                connection.execute(
+                    """DELETE FROM one_of_group_members
+                       WHERE photo_id = ? AND group_id IN (
+                           SELECT id FROM one_of_groups WHERE status = 'open'
+                       )""",
+                    (photo_id,),
+                )
+                connection.execute(
+                    """DELETE FROM one_of_groups
+                       WHERE status = 'open' AND NOT EXISTS (
+                           SELECT 1 FROM one_of_group_members
+                           WHERE group_id = one_of_groups.id
+                       )"""
+                )
             if normalized:
                 connection.execute(
                     """INSERT INTO editorial_flags(photo_id, flag)
@@ -783,6 +835,24 @@ class Catalog:
                 connection.execute(
                     "DELETE FROM editorial_flags WHERE photo_id = ?", (photo_id,)
                 )
+            return self._current_one_of_group(connection)
+
+    def finish_current_one_of_group(self) -> dict[str, Any]:
+        with self.database.transaction() as connection:
+            current = self._current_one_of_group(connection)
+            if not current["active"]:
+                raise LookupError("No one-of group is currently active")
+            connection.execute(
+                """UPDATE one_of_groups
+                   SET status = 'finished', finished_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (current["group_id"],),
+            )
+            return {
+                "active": False,
+                "group_id": current["group_id"],
+                "member_count": current["member_count"],
+            }
 
     def set_tags(self, photo_id: int, tags: Iterable[str]) -> None:
         normalized = sorted(

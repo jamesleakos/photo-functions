@@ -246,6 +246,69 @@ def test_editorial_flags_and_filters_combine_across_dimensions(tmp_path, setting
         catalog.set_editorial_flag(9999, "candidate")
 
 
+def test_one_of_groups_have_explicit_finish_boundaries(tmp_path, settings):
+    paths = [tmp_path / f"choice-{index}.jpg" for index in range(3)]
+    extractor = FixedExtractor(
+        {
+            path.name: metadata(
+                6000,
+                4000,
+                f"{index:016x}",
+                f"2024-03-0{index + 1}T10:00:00",
+            )
+            for index, path in enumerate(paths)
+        }
+    )
+    for path in paths:
+        path.write_bytes(path.name.encode())
+    catalog = Catalog(Database(settings.database_path), settings, extractor)
+    for path in paths:
+        catalog.ingest_file(path, "camera")
+    photo_ids = {
+        item["filename"]: item["id"]
+        for item in catalog.list_photos()
+    }
+
+    first = catalog.set_editorial_flag(photo_ids[paths[0].name], "one_of")
+    second = catalog.set_editorial_flag(photo_ids[paths[1].name], "one_of")
+
+    assert first["active"] is True
+    assert first["member_count"] == 1
+    assert second == {
+        "active": True,
+        "group_id": first["group_id"],
+        "member_count": 2,
+    }
+    catalog.set_editorial_flag(photo_ids[paths[1].name], "candidate")
+    assert catalog.current_one_of_group()["member_count"] == 1
+    catalog.set_editorial_flag(photo_ids[paths[1].name], "one_of")
+
+    finished = catalog.finish_current_one_of_group()
+
+    assert finished == {
+        "active": False,
+        "group_id": first["group_id"],
+        "member_count": 2,
+    }
+    assert catalog.current_one_of_group() == {
+        "active": False,
+        "group_id": None,
+        "member_count": 0,
+    }
+    catalog.set_editorial_flag(photo_ids[paths[0].name], "include")
+    next_group = catalog.set_editorial_flag(photo_ids[paths[2].name], "one_of")
+    assert next_group["group_id"] != first["group_id"]
+    assert next_group["member_count"] == 1
+    catalog.set_editorial_flag(photo_ids[paths[2].name], None)
+    assert catalog.current_one_of_group()["active"] is False
+    with catalog.database.connect() as connection:
+        historical_members = connection.execute(
+            "SELECT COUNT(*) count FROM one_of_group_members WHERE group_id = ?",
+            (first["group_id"],),
+        ).fetchone()["count"]
+    assert historical_members == 2
+
+
 def test_photo_date_order_keeps_missing_capture_dates_last(tmp_path, settings):
     oldest = tmp_path / "oldest.jpg"
     newest = tmp_path / "newest.jpg"

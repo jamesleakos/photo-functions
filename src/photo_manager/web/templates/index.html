@@ -16,14 +16,13 @@
     <div class="header-actions">
       <button id="undo-flag-button" class="button secondary undo-button" type="button"
         aria-label="Undo last flag change" disabled>Undo</button>
+      <button id="finish-one-of-button" class="button secondary finish-one-of-button"
+        type="button" aria-label="Finish current one of group" disabled>Finish one of</button>
       <label class="button secondary upload-button local-only">
         Add photos
         <input id="upload-input" type="file" accept="image/*,video/*" multiple hidden>
       </label>
       <button id="backup-button" class="button local-only">Back up now</button>
-      <form action="/logout" method="post">
-        <button class="button secondary" type="submit">Sign out</button>
-      </form>
     </div>
   </header>
 
@@ -157,6 +156,12 @@
       </div>
     </section>
   </main>
+
+  <footer class="app-footer">
+    <form action="/logout" method="post">
+      <button class="text-button" type="submit">Sign out</button>
+    </form>
+  </footer>
 
   <dialog id="photo-viewer" class="photo-viewer" aria-label="Full-screen photo viewer">
     <div class="viewer-shell">

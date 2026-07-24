@@ -123,10 +123,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.cloud_catalog_sync:
             upload_catalog_snapshot(catalog, storage, settings)
 
-    def hosted_mutation(action) -> None:
+    def hosted_mutation(action):
         with catalog_sync_lock:
-            action()
+            result = action()
             persist_catalog()
+            return result
 
     app = FastAPI(title="Photo Manager", version="0.1.0")
     app.state.settings = settings
@@ -460,12 +461,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.put("/api/photos/{photo_id}/flag")
     def editorial_flag(
         photo_id: int, update: EditorialFlagUpdate
-    ) -> dict[str, str | None]:
+    ) -> dict:
         try:
-            hosted_mutation(lambda: catalog.set_editorial_flag(photo_id, update.flag))
+            group = hosted_mutation(
+                lambda: catalog.set_editorial_flag(photo_id, update.flag)
+            )
         except KeyError as error:
             raise HTTPException(404, "Photo not found") from error
-        return {"status": "updated", "flag": update.flag}
+        return {"status": "updated", "flag": update.flag, "one_of_group": group}
+
+    @app.get("/api/one-of-groups/current")
+    def current_one_of_group() -> dict:
+        return catalog.current_one_of_group()
+
+    @app.post("/api/one-of-groups/current/finish")
+    def finish_current_one_of_group() -> dict:
+        try:
+            return hosted_mutation(catalog.finish_current_one_of_group)
+        except LookupError as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.get("/api/variant-groups")
     def variant_groups(status: str = "pending") -> list[dict]:

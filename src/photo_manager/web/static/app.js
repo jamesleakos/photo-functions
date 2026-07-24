@@ -8,6 +8,8 @@ const state = {
   viewerImageRequest: 0,
   flagHistory: [],
   undoInFlight: false,
+  oneOfGroup: { active: false, group_id: null, member_count: 0 },
+  finishOneOfInFlight: false,
 };
 const $ = (selector) => document.querySelector(selector);
 const viewerZoom = {
@@ -152,6 +154,42 @@ function rememberFlagChange(photoId, previousFlag, nextFlag) {
   state.flagHistory.push({ photoId, previousFlag, nextFlag });
   if (state.flagHistory.length > 5) state.flagHistory.shift();
   updateUndoButton();
+}
+
+function updateOneOfGroupButton() {
+  const button = $("#finish-one-of-button");
+  if (!button) return;
+  const count = Number(state.oneOfGroup.member_count || 0);
+  button.textContent = state.oneOfGroup.active
+    ? `Finish one of (${count})`
+    : "Finish one of";
+  button.disabled = !state.oneOfGroup.active || state.finishOneOfInFlight;
+}
+
+function setOneOfGroupState(group) {
+  state.oneOfGroup = group || { active: false, group_id: null, member_count: 0 };
+  updateOneOfGroupButton();
+}
+
+async function loadOneOfGroupState() {
+  setOneOfGroupState(await api("/api/one-of-groups/current"));
+}
+
+async function finishOneOfGroup() {
+  if (!state.oneOfGroup.active || state.finishOneOfInFlight) return;
+  state.finishOneOfInFlight = true;
+  updateOneOfGroupButton();
+  try {
+    const finished = await api("/api/one-of-groups/current/finish", { method: "POST" });
+    setOneOfGroupState({ active: false, group_id: null, member_count: 0 });
+    const count = Number(finished.member_count || 0);
+    showToast(`Finished one-of group with ${count} photo${count === 1 ? "" : "s"}.`);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    state.finishOneOfInFlight = false;
+    updateOneOfGroupButton();
+  }
 }
 
 function photoMatchesFlagFilters(flag) {
@@ -512,10 +550,11 @@ async function setEditorialFlag(photoId, flag) {
   const previousFlag = photo.editorial_flag || null;
   const nextFlag = photo.editorial_flag === flag ? null : flag;
   try {
-    await api(`/api/photos/${photoId}/flag`, {
+    const update = await api(`/api/photos/${photoId}/flag`, {
       method: "PUT",
       body: JSON.stringify({ flag: nextFlag }),
     });
+    setOneOfGroupState(update.one_of_group);
     rememberFlagChange(photoId, previousFlag, nextFlag);
     photo.editorial_flag = nextFlag;
     if (photoMatchesFlagFilters(nextFlag)) {
@@ -536,10 +575,11 @@ async function undoLastFlag() {
   state.undoInFlight = true;
   updateUndoButton();
   try {
-    await api(`/api/photos/${change.photoId}/flag`, {
+    const update = await api(`/api/photos/${change.photoId}/flag`, {
       method: "PUT",
       body: JSON.stringify({ flag: change.previousFlag }),
     });
+    setOneOfGroupState(update.one_of_group);
     state.flagHistory.pop();
     const photo = state.photos.find(item => item.id === change.photoId)
       || (state.viewerPhoto?.id === change.photoId ? state.viewerPhoto : null);
@@ -631,6 +671,7 @@ async function uploadFiles(files) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   $("#undo-flag-button").addEventListener("click", undoLastFlag);
+  $("#finish-one-of-button").addEventListener("click", finishOneOfGroup);
   $("#viewer-close").addEventListener("click", closePhotoViewer);
   $("#viewer-prev").addEventListener("click", () => movePhotoViewer(-1));
   $("#viewer-next").addEventListener("click", () => movePhotoViewer(1));
@@ -683,7 +724,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.hosted = Boolean(config.hosted_gallery);
     if (state.hosted) state.pageSize = 60;
     document.querySelectorAll(".local-only").forEach(item => item.classList.toggle("hidden", state.hosted));
-    await Promise.all([loadStats(), loadPhotos(), loadDuplicates()]);
+    await Promise.all([loadStats(), loadPhotos(), loadDuplicates(), loadOneOfGroupState()]);
   }
   catch (error) { showToast(error.message); }
 });

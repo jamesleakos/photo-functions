@@ -41,3 +41,38 @@ def test_editorial_flag_constraint_migrates_existing_catalog(tmp_path):
         ).fetchone()
     assert existing["flag"] == "flagship"
     assert migrated["flag"] == "not_included"
+
+
+def test_existing_one_of_flags_become_an_open_group(tmp_path):
+    database = Database(tmp_path / "catalog.db")
+    database.initialize()
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO photos(
+                   sha256, filename, extension, media_type, size_bytes
+               ) VALUES (?, ?, ?, ?, ?)""",
+            ("b" * 64, "legacy-one-of.jpg", ".jpg", "image/jpeg", 84),
+        )
+        connection.execute(
+            "INSERT INTO editorial_flags(photo_id, flag) VALUES (1, 'one_of')"
+        )
+        connection.executescript(
+            """
+            DROP INDEX idx_one_of_group_members_photo;
+            DROP TABLE one_of_group_members;
+            DROP INDEX idx_one_of_groups_single_open;
+            DROP TABLE one_of_groups;
+            """
+        )
+
+    database.initialize()
+
+    with database.connect() as connection:
+        group = connection.execute(
+            """SELECT g.status, COUNT(m.photo_id) member_count
+               FROM one_of_groups g
+               JOIN one_of_group_members m ON m.group_id = g.id
+               GROUP BY g.id"""
+        ).fetchone()
+    assert group["status"] == "open"
+    assert group["member_count"] == 1

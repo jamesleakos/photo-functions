@@ -41,9 +41,18 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     )
     assert flagged.status_code == 200
     assert flagged.json()["flag"] == "one_of"
+    assert flagged.json()["one_of_group"]["active"] is True
+    assert flagged.json()["one_of_group"]["member_count"] == 1
+    assert client.get("/api/one-of-groups/current").json()["active"] is True
     filtered = client.get("/api/photos", params={"flag": ["flagship", "one_of"]})
     assert [item["id"] for item in filtered.json()] == [catalog_id]
     assert filtered.json()[0]["editorial_flag"] == "one_of"
+    finished = client.post("/api/one-of-groups/current/finish")
+    assert finished.status_code == 200
+    assert finished.json()["member_count"] == 1
+    assert finished.json()["active"] is False
+    assert client.get("/api/one-of-groups/current").json()["active"] is False
+    assert client.post("/api/one-of-groups/current/finish").status_code == 409
     assert client.put(f"/api/photos/{catalog_id}/flag", json={"flag": None}).status_code == 200
     assert client.get("/api/photos", params={"flag": "unflagged"}).json()[0]["id"] == catalog_id
     excluded = client.put(
@@ -63,6 +72,10 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert 'name="media-filter"' in index.text
     assert 'id="date-sort"' in index.text
     assert '<option value="asc" selected>Oldest first</option>' in index.text
+    assert 'id="finish-one-of-button"' in index.text
+    header = index.text.split("</header>", 1)[0]
+    assert "Sign out" not in header
+    assert "Sign out" in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
     assert 'id="viewer-prev"' in index.text

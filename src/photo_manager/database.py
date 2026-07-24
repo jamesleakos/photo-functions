@@ -105,6 +105,26 @@ CREATE TABLE IF NOT EXISTS editorial_flags (
 
 CREATE INDEX IF NOT EXISTS idx_editorial_flags_flag
 ON editorial_flags(flag);
+
+CREATE TABLE IF NOT EXISTS one_of_groups (
+    id INTEGER PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'finished')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_of_groups_single_open
+ON one_of_groups(status) WHERE status = 'open';
+
+CREATE TABLE IF NOT EXISTS one_of_group_members (
+    group_id INTEGER NOT NULL REFERENCES one_of_groups(id) ON DELETE CASCADE,
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(group_id, photo_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_one_of_group_members_photo
+ON one_of_group_members(photo_id);
 """
 
 
@@ -122,8 +142,13 @@ class Database:
 
     def initialize(self) -> None:
         with self.connect() as connection:
+            one_of_groups_existed = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'one_of_groups'"
+            ).fetchone()
             connection.executescript(SCHEMA)
             self._migrate_editorial_flags(connection)
+            if not one_of_groups_existed:
+                self._migrate_legacy_one_of_flags(connection)
 
     @staticmethod
     def _migrate_editorial_flags(connection: sqlite3.Connection) -> None:
@@ -150,6 +175,21 @@ class Database:
             CREATE INDEX idx_editorial_flags_flag ON editorial_flags(flag);
             COMMIT;
             """
+        )
+
+    @staticmethod
+    def _migrate_legacy_one_of_flags(connection: sqlite3.Connection) -> None:
+        legacy_members = connection.execute(
+            "SELECT photo_id FROM editorial_flags WHERE flag = 'one_of' ORDER BY updated_at, photo_id"
+        ).fetchall()
+        if not legacy_members:
+            return
+        group_id = connection.execute(
+            "INSERT INTO one_of_groups(status) VALUES ('open')"
+        ).lastrowid
+        connection.executemany(
+            "INSERT INTO one_of_group_members(group_id, photo_id) VALUES (?, ?)",
+            [(group_id, row["photo_id"]) for row in legacy_members],
         )
 
     def snapshot(self, destination: Path | str) -> Path:

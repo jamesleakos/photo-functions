@@ -60,9 +60,20 @@ h2 { font-family: Georgia, serif; font-weight: 500; }
 .button:disabled { cursor: default; opacity: .42; }
 .button:disabled:hover { background: var(--accent); }
 .button.secondary:disabled:hover { background: transparent; }
+.finish-one-of-button:not(:disabled) {
+  border-color: #655a8b;
+  background: #655a8b;
+  color: white;
+}
+.finish-one-of-button:not(:disabled):hover { background: #50466f; }
 .button.small { padding: .52rem .8rem; font-size: .82rem; }
 
 main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
+.app-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 clamp(.65rem, 2vw, 1.5rem) 1.25rem;
+}
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; }
 .stat {
   display: flex;
