@@ -78,6 +78,49 @@ class ScanRequest(BaseModel):
 
 SESSION_COOKIE = "photo_manager_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 30
+MEMORY_WARNING_RATIO = 0.8
+CGROUP_MEMORY_FILES = (
+    (
+        Path("/sys/fs/cgroup/memory.current"),
+        Path("/sys/fs/cgroup/memory.max"),
+    ),
+    (
+        Path("/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+        Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+    ),
+)
+
+
+def _container_memory_status(
+    memory_files: tuple[tuple[Path, Path], ...] = CGROUP_MEMORY_FILES,
+) -> dict[str, object]:
+    for usage_path, limit_path in memory_files:
+        try:
+            usage_text = usage_path.read_text().strip()
+            limit_text = limit_path.read_text().strip()
+            if limit_text == "max":
+                continue
+            used_bytes = int(usage_text)
+            limit_bytes = int(limit_text)
+        except (OSError, ValueError):
+            continue
+        if used_bytes < 0 or limit_bytes <= 0 or limit_bytes >= 2**60:
+            continue
+        usage_ratio = used_bytes / limit_bytes
+        return {
+            "available": True,
+            "used_bytes": used_bytes,
+            "limit_bytes": limit_bytes,
+            "usage_ratio": usage_ratio,
+            "warning": usage_ratio >= MEMORY_WARNING_RATIO,
+        }
+    return {
+        "available": False,
+        "used_bytes": None,
+        "limit_bytes": None,
+        "usage_ratio": None,
+        "warning": False,
+    }
 
 
 def _session_signature(username: str, password: str, issued_at: int) -> str:
@@ -225,6 +268,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/config")
     def config() -> dict[str, bool]:
         return {"hosted_gallery": settings.hosted_gallery}
+
+    @app.get("/api/system/resources")
+    def system_resources() -> dict[str, object]:
+        return {
+            "memory": _container_memory_status(),
+            "warning_ratio": MEMORY_WARNING_RATIO,
+        }
 
     @app.get("/api/photos")
     def photos(

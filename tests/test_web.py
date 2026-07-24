@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from photo_manager.web.app import create_app
+from photo_manager.web import app as web_app
 
 
 def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
@@ -81,6 +82,8 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert 'id="viewer-prev"' in index.text
     assert 'id="viewer-next"' in index.text
     assert 'id="viewer-stage"' in index.text
+    assert 'id="memory-alert"' in index.text
+    assert 'id="memory-alert-dismiss"' in index.text
     assert "Working magazine issue" not in index.text
 
 
@@ -93,6 +96,44 @@ def test_photo_filter_rejects_reversed_date_range(settings):
     )
 
     assert response.status_code == 400
+
+
+def test_resource_endpoint_reports_container_memory(monkeypatch, settings):
+    monkeypatch.setattr(
+        web_app,
+        "_container_memory_status",
+        lambda: {
+            "available": True,
+            "used_bytes": 1_800_000_000,
+            "limit_bytes": 2_000_000_000,
+            "usage_ratio": 0.9,
+            "warning": True,
+        },
+    )
+    client = TestClient(create_app(settings))
+
+    response = client.get("/api/system/resources")
+
+    assert response.status_code == 200
+    assert response.json()["memory"]["warning"] is True
+    assert response.json()["warning_ratio"] == 0.8
+
+
+def test_container_memory_status_reads_cgroup_files(tmp_path):
+    usage = tmp_path / "memory.current"
+    limit = tmp_path / "memory.max"
+    usage.write_text("450")
+    limit.write_text("500")
+
+    status = web_app._container_memory_status(((usage, limit),))
+
+    assert status == {
+        "available": True,
+        "used_bytes": 450,
+        "limit_bytes": 500,
+        "usage_ratio": 0.9,
+        "warning": True,
+    }
 
 
 def test_photo_endpoint_sorts_by_capture_date(settings, tmp_path):

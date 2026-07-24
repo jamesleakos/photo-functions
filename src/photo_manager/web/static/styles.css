@@ -273,6 +273,42 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .flag-button.flag-not-included.active { border-color: #575b60; background: #575b60; }
 .load-more-wrap { display: flex; justify-content: center; padding: .75rem 0; }
 
+.memory-alert {
+  position: fixed;
+  z-index: 20;
+  top: calc(4.5rem + env(safe-area-inset-top));
+  right: max(.65rem, env(safe-area-inset-right));
+  display: flex;
+  align-items: flex-start;
+  gap: .7rem;
+  width: min(22rem, calc(100vw - 1.3rem));
+  border: 1px solid #d88b28;
+  border-radius: 9px;
+  padding: .7rem .75rem;
+  background: #fff5df;
+  color: #5d3908;
+  box-shadow: 0 10px 35px rgba(35, 28, 18, .2);
+}
+.memory-alert.critical {
+  border-color: #b63a2d;
+  background: #fff0ed;
+  color: #711e15;
+}
+.memory-alert p {
+  margin: .18rem 0 0;
+  color: inherit;
+  font-size: .76rem;
+}
+.memory-alert button {
+  margin: -.25rem -.2rem 0 auto;
+  border: 0;
+  padding: .15rem .3rem;
+  background: transparent;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
 .photo-viewer {
   width: 100vw;
   max-width: none;

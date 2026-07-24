@@ -10,6 +10,8 @@ const state = {
   undoInFlight: false,
   oneOfGroup: { active: false, group_id: null, member_count: 0 },
   finishOneOfInFlight: false,
+  memoryAlertDismissedLevel: null,
+  memoryAlertLevel: null,
 };
 const $ = (selector) => document.querySelector(selector);
 const viewerZoom = {
@@ -41,6 +43,42 @@ function showToast(message) {
   toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.add("hidden"), 3500);
+}
+
+function updateMemoryAlert(memory, warningRatio = 0.8) {
+  const alert = $("#memory-alert");
+  if (!alert) return;
+  const ratio = Number(memory?.usage_ratio);
+  if (!memory?.available || !Number.isFinite(ratio) || ratio < warningRatio) {
+    alert.classList.add("hidden");
+    state.memoryAlertDismissedLevel = null;
+    state.memoryAlertLevel = null;
+    return;
+  }
+  const level = ratio >= 0.95 ? "critical" : "warning";
+  if (level !== state.memoryAlertLevel && level === "critical") {
+    state.memoryAlertDismissedLevel = null;
+  }
+  state.memoryAlertLevel = level;
+  if (state.memoryAlertDismissedLevel === level) return;
+  const percentage = Math.round(ratio * 100);
+  $("#memory-alert-title").textContent = level === "critical"
+    ? "Render memory is nearly full"
+    : "Render memory is running high";
+  $("#memory-alert-detail").textContent =
+    `${formatBytes(memory.used_bytes)} of ${formatBytes(memory.limit_bytes)} used (${percentage}%).`;
+  alert.classList.toggle("critical", level === "critical");
+  alert.classList.remove("hidden");
+}
+
+async function checkResourceUsage() {
+  if (!state.hosted || document.visibilityState !== "visible") return;
+  try {
+    const resources = await api("/api/system/resources");
+    updateMemoryAlert(resources.memory, Number(resources.warning_ratio || 0.8));
+  } catch (_) {
+    // Resource telemetry must never interrupt photo management.
+  }
 }
 
 async function api(path, options = {}) {
@@ -105,7 +143,7 @@ function flagButtons(photo, context = "card") {
     <button class="flag-button flag-${flag.replace("_", "-")} ${activeFlag === flag ? "active" : ""}"
       type="button" aria-label="${label}" title="${label}" aria-pressed="${activeFlag === flag}"
       data-flag-context="${context}"
-      onclick="setEditorialFlag(${photo.id}, '${flag}')">${visibleLabel}</button>`;
+      onclick="setEditorialFlag(${photo.id}, '${flag}', '${context}')">${visibleLabel}</button>`;
   }).join("");
 }
 
@@ -542,11 +580,16 @@ async function fillFilteredResultGap() {
   $("#load-more").classList.toggle("hidden", page.length < 2);
 }
 
-async function setEditorialFlag(photoId, flag) {
+async function setEditorialFlag(photoId, flag, context = "card") {
   if (state.undoInFlight) return;
   const photo = state.photos.find(item => item.id === photoId)
     || (state.viewerPhoto && state.viewerPhoto.id === photoId ? state.viewerPhoto : null);
   if (!photo) return;
+  const advanceViewer = context === "viewer" && state.viewerPhoto?.id === photoId;
+  const currentIndex = state.photos.findIndex(item => item.id === photoId);
+  const nextViewerPhotoId = advanceViewer && state.photos.length > 1 && currentIndex >= 0
+    ? state.photos[(currentIndex + 1) % state.photos.length].id
+    : null;
   const previousFlag = photo.editorial_flag || null;
   const nextFlag = photo.editorial_flag === flag ? null : flag;
   try {
@@ -561,8 +604,18 @@ async function setEditorialFlag(photoId, flag) {
       updatePhotoFlagPresentation(photo);
     } else {
       removePhotoFromResults(photoId);
-      if (state.viewerPhoto?.id === photoId) closePhotoViewer();
       await fillFilteredResultGap();
+    }
+    if (advanceViewer) {
+      const nextPhoto = state.photos.find(item => item.id === nextViewerPhotoId)
+        || state.photos.find(item => item.id !== photoId)
+        || state.photos[0];
+      if (nextPhoto) {
+        state.viewerPhoto = nextPhoto;
+        updatePhotoViewer();
+      } else {
+        closePhotoViewer();
+      }
     }
     await loadStats();
     showToast(nextFlag ? `Flagged as ${flagLabels[nextFlag]}.` : "Flag removed.");
@@ -672,6 +725,10 @@ async function uploadFiles(files) {
 document.addEventListener("DOMContentLoaded", async () => {
   $("#undo-flag-button").addEventListener("click", undoLastFlag);
   $("#finish-one-of-button").addEventListener("click", finishOneOfGroup);
+  $("#memory-alert-dismiss").addEventListener("click", () => {
+    state.memoryAlertDismissedLevel = state.memoryAlertLevel;
+    $("#memory-alert").classList.add("hidden");
+  });
   $("#viewer-close").addEventListener("click", closePhotoViewer);
   $("#viewer-prev").addEventListener("click", () => movePhotoViewer(-1));
   $("#viewer-next").addEventListener("click", () => movePhotoViewer(1));
@@ -724,7 +781,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.hosted = Boolean(config.hosted_gallery);
     if (state.hosted) state.pageSize = 60;
     document.querySelectorAll(".local-only").forEach(item => item.classList.toggle("hidden", state.hosted));
-    await Promise.all([loadStats(), loadPhotos(), loadDuplicates(), loadOneOfGroupState()]);
+    await Promise.all([
+      loadStats(),
+      loadPhotos(),
+      loadDuplicates(),
+      loadOneOfGroupState(),
+      checkResourceUsage(),
+    ]);
+    if (state.hosted) setInterval(checkResourceUsage, 5000);
   }
   catch (error) { showToast(error.message); }
 });
