@@ -31,6 +31,7 @@ const VIEWER_MIN_SCALE = 1;
 const VIEWER_MAX_SCALE = 5;
 const VIEWER_DOUBLE_TAP_SCALE = 3;
 const DERIVATIVE_RETRY_LIMIT = 40;
+const VIEW_SETTINGS_STORAGE_KEY = "photo-manager:view-settings:v1";
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -152,6 +153,84 @@ const compactFlagLabels = {
 function selectedValues(name) {
   return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`))
     .map(input => input.value);
+}
+
+function setSelectedValues(name, values) {
+  const selected = new Set(Array.isArray(values) ? values : []);
+  document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function activeView() {
+  return document.querySelector(".tab.active")?.dataset.view || "library";
+}
+
+function setActiveView(view) {
+  const selectedView = view === "duplicates" ? "duplicates" : "library";
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.view === selectedView);
+  });
+  $("#library-view").classList.toggle("hidden", selectedView !== "library");
+  $("#duplicates-view").classList.toggle("hidden", selectedView !== "duplicates");
+}
+
+function currentViewSettings() {
+  return {
+    flagFilters: selectedValues("flag-filter"),
+    sourceFilters: selectedValues("source-filter"),
+    mediaFilters: selectedValues("media-filter"),
+    favoritesOnly: $("#favorites-filter").checked,
+    dateFrom: $("#date-from").value,
+    dateTo: $("#date-to").value,
+    dateSort: $("#date-sort").value,
+    filterPanelOpen: Boolean($(".filter-panel")?.open),
+    activeView: activeView(),
+  };
+}
+
+function saveViewSettings() {
+  try {
+    localStorage.setItem(
+      VIEW_SETTINGS_STORAGE_KEY,
+      JSON.stringify(currentViewSettings()),
+    );
+  } catch (_) {
+    // Browsing still works when storage is unavailable or disabled.
+  }
+}
+
+function storedDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : "";
+}
+
+function restoreViewSettings() {
+  let settings;
+  try {
+    settings = JSON.parse(localStorage.getItem(VIEW_SETTINGS_STORAGE_KEY) || "null");
+  } catch (_) {
+    return;
+  }
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return;
+
+  setSelectedValues("flag-filter", settings.flagFilters);
+  setSelectedValues("source-filter", settings.sourceFilters);
+  setSelectedValues("media-filter", settings.mediaFilters);
+  $("#favorites-filter").checked = settings.favoritesOnly === true;
+
+  const dateFrom = storedDate(settings.dateFrom);
+  const dateTo = storedDate(settings.dateTo);
+  if (!dateFrom || !dateTo || dateFrom <= dateTo) {
+    $("#date-from").value = dateFrom;
+    $("#date-to").value = dateTo;
+  }
+  $("#date-sort").value = settings.dateSort === "desc" ? "desc" : "asc";
+  if (typeof settings.filterPanelOpen === "boolean") {
+    $(".filter-panel").open = settings.filterPanelOpen;
+  }
+  setActiveView(settings.activeView);
 }
 
 function sourceLabel(sources) {
@@ -777,6 +856,7 @@ async function uploadFiles(files) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  restoreViewSettings();
   $("#undo-flag-button").addEventListener("click", undoLastFlag);
   $("#finish-one-of-button").addEventListener("click", finishOneOfGroup);
   $("#memory-alert-dismiss").addEventListener("click", () => {
@@ -818,23 +898,36 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
   document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", async () => {
-    document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item === tab));
-    $("#library-view").classList.toggle("hidden", tab.dataset.view !== "library");
-    $("#duplicates-view").classList.toggle("hidden", tab.dataset.view !== "duplicates");
+    setActiveView(tab.dataset.view);
+    saveViewSettings();
     if (tab.dataset.view === "duplicates" && !state.duplicatesLoaded) {
       try { await loadDuplicates(); } catch (error) { showToast(error.message); }
     }
   }));
+  $(".filter-panel").addEventListener("toggle", saveViewSettings);
   document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
-    .forEach(input => input.addEventListener("change", () => loadPhotos()));
-  $("#date-from").addEventListener("change", () => loadPhotos());
-  $("#date-to").addEventListener("change", () => loadPhotos());
-  $("#date-sort").addEventListener("change", () => loadPhotos());
+    .forEach(input => input.addEventListener("change", () => {
+      saveViewSettings();
+      loadPhotos();
+    }));
+  $("#date-from").addEventListener("change", () => {
+    saveViewSettings();
+    loadPhotos();
+  });
+  $("#date-to").addEventListener("change", () => {
+    saveViewSettings();
+    loadPhotos();
+  });
+  $("#date-sort").addEventListener("change", () => {
+    saveViewSettings();
+    loadPhotos();
+  });
   $("#clear-filters").addEventListener("click", () => {
     document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
       .forEach(input => { input.checked = false; });
     $("#date-from").value = "";
     $("#date-to").value = "";
+    saveViewSettings();
     loadPhotos();
   });
   $("#backup-button").addEventListener("click", runBackup);
@@ -845,12 +938,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.hosted = Boolean(config.hosted_gallery);
     if (state.hosted) state.pageSize = 60;
     document.querySelectorAll(".local-only").forEach(item => item.classList.toggle("hidden", state.hosted));
-    await Promise.all([
+    const initialLoads = [
       loadStats(),
       loadPhotos(),
       loadOneOfGroupState(),
       checkResourceUsage(),
-    ]);
+    ];
+    if (activeView() === "duplicates") initialLoads.push(loadDuplicates());
+    await Promise.all(initialLoads);
     if (state.hosted) setInterval(checkResourceUsage, 5000);
   }
   catch (error) { showToast(error.message); }
