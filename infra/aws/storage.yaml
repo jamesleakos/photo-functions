@@ -142,12 +142,14 @@ Resources:
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/originals/*"
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/metadata/catalog-latest.db"
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/thumbnails/*"
-              - Sid: WriteGalleryMetadataAndThumbnails
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/previews/*"
+              - Sid: WriteGalleryMetadataThumbnailsAndPreviews
                 Effect: Allow
                 Action: "s3:PutObject"
                 Resource:
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/metadata/catalog-latest.db"
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/thumbnails/*"
+                  - !Sub "${ArchiveBucket.Arn}/photo-manager/previews/*"
       Tags:
         - Key: project
           Value: photo-manager
