@@ -92,6 +92,8 @@ Resources:
       FunctionName: !Ref DerivativeWorker
       BatchSize: 1
       Enabled: true
+      ScalingConfig:
+        MaximumConcurrency: 2
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
