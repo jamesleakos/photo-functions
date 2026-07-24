@@ -20,3 +20,21 @@ def test_thumbnail_prefers_embedded_preview(monkeypatch, tmp_path):
     assert red > 200
     assert green < 40
     assert blue < 40
+
+
+def test_high_quality_preview_prefers_original_and_preserves_more_detail(monkeypatch, tmp_path):
+    source = tmp_path / "large-original.jpg"
+    destination = tmp_path / "preview.jpg"
+    Image.new("RGB", (4000, 3000), "blue").save(source)
+    preview_buffer = BytesIO()
+    Image.new("RGB", (400, 300), "red").save(preview_buffer, "JPEG")
+    monkeypatch.setattr(thumbnails, "_extract_preview", lambda _: preview_buffer.getvalue())
+
+    thumbnails.create_preview(source, destination)
+
+    with Image.open(destination) as result:
+        assert result.size == (3200, 2400)
+        red, green, blue = result.resize((1, 1)).getpixel((0, 0))
+    assert red < 40
+    assert green < 40
+    assert blue > 200

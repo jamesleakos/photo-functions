@@ -37,13 +37,48 @@ def create_thumbnail(source: Path, destination: Path, size: tuple[int, int] = (7
         return destination
 
 
-def _save_thumbnail(image: Image.Image, destination: Path, size: tuple[int, int]) -> None:
+def create_preview(
+    source: Path,
+    destination: Path,
+    size: tuple[int, int] = (3200, 3200),
+) -> Path:
+    """Create a high-quality, browser-compatible preview from an original."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.stat().st_mtime >= source.stat().st_mtime:
+        return destination
+    try:
+        with Image.open(source) as image:
+            _save_thumbnail(image, destination, size, quality=91)
+            return destination
+    except Exception:
+        preview = _extract_preview(source)
+        if preview is None:
+            raise
+        with Image.open(io.BytesIO(preview)) as image:
+            _save_thumbnail(image, destination, size, quality=91)
+        return destination
+
+
+def _save_thumbnail(
+    image: Image.Image,
+    destination: Path,
+    size: tuple[int, int],
+    *,
+    quality: int = 84,
+) -> None:
+    image.draft("RGB", size)
     display_image = ImageOps.exif_transpose(image)
     try:
-        display_image.thumbnail(size)
+        display_image.thumbnail(size, Image.Resampling.LANCZOS)
         converted = display_image.convert("RGB")
         try:
-            converted.save(destination, "JPEG", quality=84, optimize=True)
+            converted.save(
+                destination,
+                "JPEG",
+                quality=quality,
+                optimize=True,
+                progressive=True,
+            )
         finally:
             converted.close()
     finally:

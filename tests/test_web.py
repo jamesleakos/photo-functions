@@ -1,4 +1,5 @@
 from dataclasses import replace
+from io import BytesIO
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -8,7 +9,7 @@ from photo_manager.web.app import create_app
 
 def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     image_path = tmp_path / "editorial.jpg"
-    Image.new("RGB", (640, 480), "#b8472d").save(image_path)
+    Image.new("RGB", (1600, 1200), "#b8472d").save(image_path)
     app = create_app(settings)
     photo_id = app.state.catalog.ingest_file(image_path, "camera")
     assert photo_id == "added"
@@ -20,6 +21,11 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     thumbnail = client.get(f"/api/photos/{catalog_id}/thumbnail")
     assert thumbnail.status_code == 200
     assert thumbnail.headers["content-type"].startswith("image/jpeg")
+    preview = client.get(f"/api/photos/{catalog_id}/preview")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("image/jpeg")
+    with Image.open(BytesIO(preview.content)) as preview_image:
+        assert preview_image.size == (1600, 1200)
 
     update = client.put(
         f"/api/photos/{catalog_id}/magazine",
@@ -58,6 +64,9 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert 'id="date-sort"' in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
+    assert 'id="viewer-prev"' in index.text
+    assert 'id="viewer-next"' in index.text
+    assert 'id="viewer-stage"' in index.text
     assert "Working magazine issue" not in index.text
 
 
@@ -155,6 +164,7 @@ def test_video_gets_placeholder_thumbnail(tmp_path, settings):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert "clip.mov" in response.text
+    assert client.get(f"/api/photos/{photo_id}/preview").status_code == 415
     assert client.get("/api/photos", params={"media": "photo"}).json() == []
     videos = client.get("/api/photos", params={"media": "video"})
     assert [item["id"] for item in videos.json()] == [photo_id]

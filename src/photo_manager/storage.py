@@ -123,6 +123,12 @@ def thumbnail_key(settings: Settings, photo: dict) -> str:
     return f"{prefix}thumbnails/{digest[:2]}/{digest}.jpg"
 
 
+def preview_key(settings: Settings, photo: dict) -> str:
+    prefix = f"{settings.s3_prefix}/" if settings.s3_prefix else ""
+    digest = photo["sha256"]
+    return f"{prefix}previews/{digest[:2]}/{digest}.jpg"
+
+
 def upload_catalog_snapshot(
     catalog: Catalog, storage: StorageBackend, settings: Settings
 ) -> StoredObject:

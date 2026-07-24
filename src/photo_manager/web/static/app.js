@@ -5,8 +5,24 @@ const state = {
   pageSize: 72,
   hosted: false,
   viewerPhoto: null,
+  viewerImageRequest: 0,
 };
 const $ = (selector) => document.querySelector(selector);
+const viewerZoom = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  pointers: new Map(),
+  gesture: null,
+  lastTapTime: 0,
+  lastTapX: 0,
+  lastTapY: 0,
+  animationTimer: null,
+  qualityTimer: null,
+};
+const VIEWER_MIN_SCALE = 1;
+const VIEWER_MAX_SCALE = 5;
+const VIEWER_DOUBLE_TAP_SCALE = 3;
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -115,11 +131,236 @@ function renderPhotos() {
   $("#empty-library").classList.toggle("hidden", state.photos.length > 0);
 }
 
+function constrainViewerPan() {
+  const stage = $("#viewer-stage");
+  const image = $("#viewer-image");
+  if (!stage || !image) return;
+  const maxX = Math.max(0, (image.offsetWidth * viewerZoom.scale - stage.clientWidth) / 2);
+  const maxY = Math.max(0, (image.offsetHeight * viewerZoom.scale - stage.clientHeight) / 2);
+  viewerZoom.x = Math.max(-maxX, Math.min(maxX, viewerZoom.x));
+  viewerZoom.y = Math.max(-maxY, Math.min(maxY, viewerZoom.y));
+}
+
+function applyViewerTransform(animate = false) {
+  const stage = $("#viewer-stage");
+  const image = $("#viewer-image");
+  if (!stage || !image) return;
+  constrainViewerPan();
+  clearTimeout(viewerZoom.animationTimer);
+  stage.classList.toggle("is-animating", animate);
+  stage.classList.toggle("is-zoomed", viewerZoom.scale > VIEWER_MIN_SCALE);
+  image.style.transform = `translate3d(${viewerZoom.x}px, ${viewerZoom.y}px, 0) scale(${viewerZoom.scale})`;
+  if (animate) {
+    viewerZoom.animationTimer = setTimeout(
+      () => stage.classList.remove("is-animating"),
+      240,
+    );
+  }
+}
+
+function resetViewerZoom(animate = false) {
+  viewerZoom.scale = VIEWER_MIN_SCALE;
+  viewerZoom.x = 0;
+  viewerZoom.y = 0;
+  viewerZoom.pointers.clear();
+  viewerZoom.gesture = null;
+  viewerZoom.lastTapTime = 0;
+  $("#viewer-stage")?.classList.remove("is-dragging");
+  applyViewerTransform(animate);
+}
+
+function zoomViewerTo(targetScale, clientX, clientY, animate = false) {
+  const stage = $("#viewer-stage");
+  if (!stage) return;
+  const nextScale = Math.max(VIEWER_MIN_SCALE, Math.min(VIEWER_MAX_SCALE, targetScale));
+  if (nextScale === VIEWER_MIN_SCALE) {
+    viewerZoom.scale = VIEWER_MIN_SCALE;
+    viewerZoom.x = 0;
+    viewerZoom.y = 0;
+    applyViewerTransform(animate);
+    return;
+  }
+  const bounds = stage.getBoundingClientRect();
+  const localX = clientX - (bounds.left + bounds.width / 2);
+  const localY = clientY - (bounds.top + bounds.height / 2);
+  const ratio = nextScale / viewerZoom.scale;
+  viewerZoom.x = localX - (localX - viewerZoom.x) * ratio;
+  viewerZoom.y = localY - (localY - viewerZoom.y) * ratio;
+  viewerZoom.scale = nextScale;
+  applyViewerTransform(animate);
+}
+
+function toggleViewerZoom(clientX, clientY) {
+  const target = viewerZoom.scale > VIEWER_MIN_SCALE
+    ? VIEWER_MIN_SCALE
+    : VIEWER_DOUBLE_TAP_SCALE;
+  zoomViewerTo(target, clientX, clientY, true);
+}
+
+function showViewerQuality(message, hideAfter = 0) {
+  const quality = $("#viewer-quality");
+  clearTimeout(viewerZoom.qualityTimer);
+  quality.textContent = message;
+  quality.classList.remove("hidden");
+  if (hideAfter) {
+    viewerZoom.qualityTimer = setTimeout(() => quality.classList.add("hidden"), hideAfter);
+  }
+}
+
+function startViewerPan(point, moved = false) {
+  viewerZoom.gesture = {
+    kind: "pan",
+    startX: point.x,
+    startY: point.y,
+    originX: viewerZoom.x,
+    originY: viewerZoom.y,
+    startedAt: Date.now(),
+    moved,
+  };
+}
+
+function startViewerPinch() {
+  const points = Array.from(viewerZoom.pointers.values()).slice(0, 2);
+  if (points.length < 2) return;
+  const [first, second] = points;
+  viewerZoom.gesture = {
+    kind: "pinch",
+    startDistance: Math.hypot(second.x - first.x, second.y - first.y),
+    startCenterX: (first.x + second.x) / 2,
+    startCenterY: (first.y + second.y) / 2,
+    startScale: viewerZoom.scale,
+    originX: viewerZoom.x,
+    originY: viewerZoom.y,
+    moved: true,
+  };
+}
+
+function viewerPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  event.preventDefault();
+  const stage = $("#viewer-stage");
+  try { stage.setPointerCapture(event.pointerId); } catch (_) {}
+  const point = { x: event.clientX, y: event.clientY };
+  viewerZoom.pointers.set(event.pointerId, point);
+  if (viewerZoom.pointers.size === 1) startViewerPan(point);
+  else if (viewerZoom.pointers.size === 2) startViewerPinch();
+}
+
+function viewerPointerMove(event) {
+  if (!viewerZoom.pointers.has(event.pointerId)) return;
+  event.preventDefault();
+  viewerZoom.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  const stage = $("#viewer-stage");
+  if (viewerZoom.pointers.size >= 2) {
+    if (viewerZoom.gesture?.kind !== "pinch") startViewerPinch();
+    const points = Array.from(viewerZoom.pointers.values()).slice(0, 2);
+    const [first, second] = points;
+    const distance = Math.hypot(second.x - first.x, second.y - first.y);
+    const centerX = (first.x + second.x) / 2;
+    const centerY = (first.y + second.y) / 2;
+    const gesture = viewerZoom.gesture;
+    const nextScale = Math.max(
+      VIEWER_MIN_SCALE,
+      Math.min(
+        VIEWER_MAX_SCALE,
+        gesture.startScale * distance / Math.max(gesture.startDistance, 1),
+      ),
+    );
+    const bounds = stage.getBoundingClientRect();
+    const stageCenterX = bounds.left + bounds.width / 2;
+    const stageCenterY = bounds.top + bounds.height / 2;
+    const ratio = nextScale / gesture.startScale;
+    const startLocalX = gesture.startCenterX - stageCenterX;
+    const startLocalY = gesture.startCenterY - stageCenterY;
+    viewerZoom.x = centerX - stageCenterX - (startLocalX - gesture.originX) * ratio;
+    viewerZoom.y = centerY - stageCenterY - (startLocalY - gesture.originY) * ratio;
+    viewerZoom.scale = nextScale;
+    applyViewerTransform();
+    return;
+  }
+  const point = viewerZoom.pointers.get(event.pointerId);
+  const gesture = viewerZoom.gesture;
+  if (!point || gesture?.kind !== "pan") return;
+  const deltaX = point.x - gesture.startX;
+  const deltaY = point.y - gesture.startY;
+  if (Math.hypot(deltaX, deltaY) > 5) gesture.moved = true;
+  if (viewerZoom.scale > VIEWER_MIN_SCALE) {
+    stage.classList.add("is-dragging");
+    viewerZoom.x = gesture.originX + deltaX;
+    viewerZoom.y = gesture.originY + deltaY;
+    applyViewerTransform();
+  }
+}
+
+function recordViewerTap(clientX, clientY) {
+  const now = Date.now();
+  const nearby = Math.hypot(
+    clientX - viewerZoom.lastTapX,
+    clientY - viewerZoom.lastTapY,
+  ) < 48;
+  if (nearby && now - viewerZoom.lastTapTime < 360) {
+    viewerZoom.lastTapTime = 0;
+    toggleViewerZoom(clientX, clientY);
+    return;
+  }
+  viewerZoom.lastTapTime = now;
+  viewerZoom.lastTapX = clientX;
+  viewerZoom.lastTapY = clientY;
+}
+
+function finishViewerPointer(event, canceled = false) {
+  if (!viewerZoom.pointers.has(event.pointerId)) return;
+  const gesture = viewerZoom.gesture;
+  const isTap = !canceled
+    && viewerZoom.pointers.size === 1
+    && gesture?.kind === "pan"
+    && !gesture.moved
+    && Date.now() - gesture.startedAt < 360;
+  viewerZoom.pointers.delete(event.pointerId);
+  $("#viewer-stage").classList.remove("is-dragging");
+  if (isTap) recordViewerTap(event.clientX, event.clientY);
+  const remaining = Array.from(viewerZoom.pointers.values());
+  if (remaining.length === 1) startViewerPan(remaining[0], true);
+  else if (remaining.length >= 2) startViewerPinch();
+  else viewerZoom.gesture = null;
+}
+
+function viewerWheel(event) {
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? 1.22 : 1 / 1.22;
+  zoomViewerTo(viewerZoom.scale * factor, event.clientX, event.clientY);
+}
+
 function updatePhotoViewer() {
   const photo = state.viewerPhoto;
   if (!photo) return;
-  $("#viewer-image").src = `/api/photos/${photo.id}/thumbnail`;
-  $("#viewer-image").alt = photo.filename;
+  const requestId = ++state.viewerImageRequest;
+  const image = $("#viewer-image");
+  resetViewerZoom();
+  image.alt = photo.filename;
+  image.dataset.quality = "thumbnail";
+  image.src = `/api/photos/${photo.id}/thumbnail`;
+  const isPhoto = String(photo.media_type || "").startsWith("image/");
+  if (isPhoto) {
+    showViewerQuality("Loading high quality…");
+    const highQualityImage = new Image();
+    highQualityImage.onload = () => {
+      if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
+      image.src = highQualityImage.src;
+      image.dataset.quality = "preview";
+      showViewerQuality("High quality", 1400);
+    };
+    highQualityImage.onerror = () => {
+      if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
+      showViewerQuality("High quality unavailable", 2400);
+    };
+    highQualityImage.src = `/api/photos/${photo.id}/preview`;
+  } else {
+    $("#viewer-quality").classList.add("hidden");
+  }
+  const hasMultiplePhotos = state.photos.length > 1;
+  $("#viewer-prev").disabled = !hasMultiplePhotos;
+  $("#viewer-next").disabled = !hasMultiplePhotos;
   $("#viewer-flag-controls").innerHTML = flagButtons(photo, "viewer");
 }
 
@@ -275,7 +516,22 @@ async function uploadFiles(files) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   $("#viewer-close").addEventListener("click", closePhotoViewer);
-  $("#photo-viewer").addEventListener("close", () => { state.viewerPhoto = null; });
+  $("#viewer-prev").addEventListener("click", () => movePhotoViewer(-1));
+  $("#viewer-next").addEventListener("click", () => movePhotoViewer(1));
+  $("#viewer-image").addEventListener("load", () => applyViewerTransform());
+  $("#viewer-stage").addEventListener("pointerdown", viewerPointerDown);
+  $("#viewer-stage").addEventListener("pointermove", viewerPointerMove);
+  $("#viewer-stage").addEventListener("pointerup", event => finishViewerPointer(event));
+  $("#viewer-stage").addEventListener(
+    "pointercancel",
+    event => finishViewerPointer(event, true),
+  );
+  $("#viewer-stage").addEventListener("wheel", viewerWheel, { passive: false });
+  $("#photo-viewer").addEventListener("close", () => {
+    state.viewerPhoto = null;
+    state.viewerImageRequest += 1;
+    resetViewerZoom();
+  });
   $("#photo-viewer").addEventListener("keydown", event => {
     if (event.key === "ArrowLeft") {
       event.preventDefault();

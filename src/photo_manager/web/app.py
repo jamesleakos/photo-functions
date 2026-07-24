@@ -17,6 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFi
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from ..catalog import Catalog, sha256_file
 from ..config import Settings
@@ -24,11 +25,12 @@ from ..database import Database
 from ..storage import (
     BackupService,
     build_storage,
+    preview_key,
     restore_catalog_snapshot,
     thumbnail_key,
     upload_catalog_snapshot,
 )
-from ..thumbnails import create_thumbnail
+from ..thumbnails import create_preview, create_thumbnail
 
 
 class MagazineUpdate(BaseModel):
@@ -347,6 +349,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return RedirectResponse(url)
         _, restored = local_or_restored(photo_id)
         return FileResponse(restored, filename=photo["filename"], media_type=photo["media_type"])
+
+    @app.get("/api/photos/{photo_id}/preview")
+    def preview(photo_id: int):
+        photo = catalog.get_photo(photo_id)
+        if not photo:
+            raise HTTPException(404, "Photo not found")
+        if not photo["media_type"].startswith("image/"):
+            raise HTTPException(415, "High-resolution previews are available for photos only")
+        temporary_preview = settings.hosted_gallery and settings.cloud_catalog_sync
+        preview_name = (
+            f"{photo['sha256']}-{uuid.uuid4().hex}.jpg"
+            if temporary_preview
+            else f"{photo['sha256']}.jpg"
+        )
+        destination = settings.thumbnail_dir / "previews" / preview_name
+
+        def preview_response() -> FileResponse:
+            cleanup = (
+                BackgroundTask(destination.unlink, missing_ok=True)
+                if temporary_preview
+                else None
+            )
+            return FileResponse(
+                destination,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "private, max-age=31536000, immutable"},
+                background=cleanup,
+            )
+
+        if destination.exists():
+            return preview_response()
+        try:
+            with thumbnail_lock:
+                if destination.exists():
+                    return preview_response()
+                local = catalog.available_path(photo_id)
+                if local:
+                    create_preview(local, destination)
+                else:
+                    if not photo.get("object_key"):
+                        raise HTTPException(404, "No available local or backup copy")
+                    if settings.cloud_catalog_sync:
+                        try:
+                            storage.download(preview_key(settings, photo), destination)
+                            return preview_response()
+                        except Exception:
+                            destination.unlink(missing_ok=True)
+                    restored = (
+                        settings.thumbnail_dir
+                        / "restored"
+                        / f"{photo['sha256']}{photo['extension']}"
+                    )
+                    try:
+                        storage.download(photo["object_key"], restored)
+                        create_preview(restored, destination)
+                        if settings.cloud_catalog_sync:
+                            storage.put(
+                                destination,
+                                preview_key(settings, photo),
+                                sha256_file(destination),
+                            )
+                    finally:
+                        restored.unlink(missing_ok=True)
+        except HTTPException:
+            if temporary_preview:
+                destination.unlink(missing_ok=True)
+            raise
+        except Exception as error:
+            if temporary_preview:
+                destination.unlink(missing_ok=True)
+            raise HTTPException(415, f"Cannot create high-resolution preview: {error}") from error
+        return preview_response()
 
     @app.put("/api/photos/{photo_id}/magazine")
     def magazine(photo_id: int, update: MagazineUpdate) -> dict[str, str]:

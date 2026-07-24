@@ -269,14 +269,74 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
 .viewer-shell { display: grid; height: 100%; grid-template-rows: minmax(0, 1fr) auto; }
 .viewer-media {
   position: relative;
-  display: grid;
   min-height: 0;
-  place-items: center;
   overflow: hidden;
 }
-.viewer-media img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.viewer-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+.viewer-stage.is-zoomed { cursor: grab; }
+.viewer-stage.is-dragging { cursor: grabbing; }
+.viewer-stage img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+}
+.viewer-stage.is-animating img { transition: transform .22s ease-out; }
+.viewer-quality {
+  position: absolute;
+  z-index: 4;
+  top: .65rem;
+  left: .7rem;
+  padding: .28rem .45rem;
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .68);
+  color: rgba(255, 255, 255, .82);
+  font-size: .6rem;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.viewer-nav {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  display: grid;
+  width: 2.45rem;
+  height: 3.35rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .58);
+  color: white;
+  font-size: 2rem;
+  line-height: 1;
+  transform: translateY(-50%);
+  backdrop-filter: blur(8px);
+}
+.viewer-nav:hover { background: rgba(50, 50, 50, .88); }
+.viewer-nav:disabled { display: none; }
+.viewer-prev { left: .65rem; }
+.viewer-next { right: .65rem; }
 .viewer-close {
   position: absolute;
+  z-index: 4;
   top: .55rem;
   right: .65rem;
   width: 2rem;
@@ -379,6 +439,9 @@ main { padding: .55rem clamp(.45rem, 1.25vw, 1rem) 2rem; }
   .photo-info { padding: .22rem; }
   .flag-controls { gap: .12rem; }
   .flag-button { padding: .32rem .08rem; font-size: .52rem; }
+  .viewer-nav { width: 2.25rem; height: 3rem; font-size: 1.75rem; }
+  .viewer-prev { left: .35rem; }
+  .viewer-next { right: .35rem; }
 }
 
 @media (min-width: 701px) and (max-width: 1180px) {
