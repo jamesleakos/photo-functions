@@ -456,9 +456,8 @@ function updateFilterSummary() {
   $("#filter-count").textContent = activeCount ? `${activeCount} active filter${activeCount === 1 ? "" : "s"} ·` : "All";
 }
 
-async function loadPhotos(reset = true) {
-  if (reset) state.offset = 0;
-  const params = new URLSearchParams({ limit: String(state.pageSize), offset: String(state.offset) });
+function photoQueryParams(limit, offset) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   params.set("date_order", $("#date-sort").value);
   selectedValues("flag-filter").forEach(flag => params.append("flag", flag));
   selectedValues("source-filter").forEach(source => params.append("source", source));
@@ -466,18 +465,43 @@ async function loadPhotos(reset = true) {
   if ($("#favorites-filter").checked) params.set("favorite", "true");
   const dateFrom = $("#date-from").value;
   const dateTo = $("#date-to").value;
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  return params;
+}
+
+async function fetchPhotoPage(limit, offset) {
+  return api(`/api/photos?${photoQueryParams(limit, offset)}`);
+}
+
+async function loadPhotos(reset = true) {
+  if (reset) state.offset = 0;
+  const dateFrom = $("#date-from").value;
+  const dateTo = $("#date-to").value;
   if (dateFrom && dateTo && dateFrom > dateTo) {
     showToast("The start date must be before the end date.");
     return;
   }
-  if (dateFrom) params.set("date_from", dateFrom);
-  if (dateTo) params.set("date_to", dateTo);
-  const page = await api(`/api/photos?${params}`);
+  const page = await fetchPhotoPage(state.pageSize, state.offset);
   state.photos = reset ? page : state.photos.concat(page);
   state.offset = state.photos.length;
   renderPhotos();
   $("#load-more").classList.toggle("hidden", page.length < state.pageSize);
   updateFilterSummary();
+}
+
+async function fillFilteredResultGap() {
+  const page = await fetchPhotoPage(2, state.photos.length);
+  const replacement = page.find(
+    candidate => !state.photos.some(photo => photo.id === candidate.id),
+  );
+  if (replacement) {
+    state.photos.push(replacement);
+    state.offset = state.photos.length;
+    $("#photo-grid").insertAdjacentHTML("beforeend", photoCard(replacement));
+    $("#empty-library").classList.add("hidden");
+  }
+  $("#load-more").classList.toggle("hidden", page.length < 2);
 }
 
 async function setEditorialFlag(photoId, flag) {
@@ -499,6 +523,7 @@ async function setEditorialFlag(photoId, flag) {
     } else {
       removePhotoFromResults(photoId);
       if (state.viewerPhoto?.id === photoId) closePhotoViewer();
+      await fillFilteredResultGap();
     }
     await loadStats();
     showToast(nextFlag ? `Flagged as ${flagLabels[nextFlag]}.` : "Flag removed.");
@@ -527,6 +552,7 @@ async function undoLastFlag() {
       } else {
         removePhotoFromResults(change.photoId);
         if (state.viewerPhoto?.id === change.photoId) closePhotoViewer();
+        await fillFilteredResultGap();
       }
     }
     await loadStats();
