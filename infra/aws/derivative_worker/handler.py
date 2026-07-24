@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 import os
 import shutil
@@ -23,6 +22,7 @@ ARCHIVE_PREFIX = os.environ.get("PHOTO_ARCHIVE_PREFIX", "photo-manager").strip("
 RAW_EXTENSIONS = frozenset({".arw", ".cr2", ".cr3", ".dng", ".nef", ".orf", ".raf", ".rw2"})
 PREVIEW_SIZE = (2560, 2560)
 THUMBNAIL_SIZE = (720, 720)
+DERIVATIVE_VERSION = "2"
 S3 = boto3.client("s3")
 
 
@@ -31,10 +31,14 @@ def derivative_key(kind: str, digest: str) -> str:
     return f"{prefix}{kind}/{digest[:2]}/{digest}.jpg"
 
 
-def object_exists(bucket: str, key: str) -> bool:
+def derivative_is_current(bucket: str, key: str, digest: str) -> bool:
     try:
-        S3.head_object(Bucket=bucket, Key=key)
-        return True
+        head = S3.head_object(Bucket=bucket, Key=key)
+        metadata = head.get("Metadata", {})
+        return (
+            metadata.get("source-sha256") == digest
+            and metadata.get("derivative-version") == DERIVATIVE_VERSION
+        )
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", ""))
         if code in {"404", "NoSuchKey", "NotFound"}:
@@ -46,10 +50,12 @@ def open_source(source: Path, extension: str):
     if extension.lower() not in RAW_EXTENSIONS:
         return Image.open(source)
     with rawpy.imread(str(source)) as raw:
-        embedded = raw.extract_thumb()
-    if embedded.format == rawpy.ThumbFormat.JPEG:
-        return Image.open(io.BytesIO(embedded.data))
-    return Image.fromarray(embedded.data)
+        rendered = raw.postprocess(
+            use_camera_wb=True,
+            half_size=True,
+            output_bps=8,
+        )
+    return Image.fromarray(rendered)
 
 
 def save_jpeg(image: Image.Image, destination: Path, size: tuple[int, int], quality: int) -> None:
@@ -95,7 +101,9 @@ def process_job(job: dict) -> None:
     bucket, original_key, digest = validate_job(job)
     preview_key = derivative_key("previews", digest)
     thumbnail_key = derivative_key("thumbnails", digest)
-    if object_exists(bucket, preview_key) and object_exists(bucket, thumbnail_key):
+    if derivative_is_current(bucket, preview_key, digest) and derivative_is_current(
+        bucket, thumbnail_key, digest
+    ):
         return
 
     work = Path("/tmp") / f"photo-derivative-{digest[:12]}-{uuid.uuid4().hex}"
@@ -109,7 +117,10 @@ def process_job(job: dict) -> None:
         upload_args = {
             "ContentType": "image/jpeg",
             "CacheControl": "private, max-age=31536000, immutable",
-            "Metadata": {"source-sha256": digest},
+            "Metadata": {
+                "source-sha256": digest,
+                "derivative-version": DERIVATIVE_VERSION,
+            },
         }
         S3.upload_file(str(preview), bucket, preview_key, ExtraArgs=upload_args)
         S3.upload_file(str(thumbnail), bucket, thumbnail_key, ExtraArgs=upload_args)
