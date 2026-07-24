@@ -31,6 +31,8 @@ services:
         value: "true"
       - key: PHOTO_HOSTED_GALLERY
         value: "true"
+      - key: PHOTO_DERIVATIVE_QUEUE_URL
+        value: https://sqs.us-west-2.amazonaws.com/784249554271/photo-manager-derivatives
       - key: PHOTO_AUTH_USERNAME
         sync: false
       - key: PHOTO_AUTH_PASSWORD

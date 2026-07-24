@@ -1,6 +1,9 @@
 # Photo Manager AWS storage
 
-`storage.yaml` is the authoritative definition of the Photo Manager archive bucket, local application role, and storage budget. `deploy.sh` creates or updates the `photo-manager-storage` CloudFormation stack.
+`storage.yaml` is the authoritative definition of the Photo Manager archive bucket, local
+application role, derivative queues, and storage budget. `deploy.sh` creates or updates the
+`photo-manager-storage` CloudFormation stack. `deploy_derivatives.sh` also packages and deploys
+the isolated Lambda derivative worker.
 
 ## Current deployment
 
@@ -9,8 +12,18 @@
 - Storage class: S3 Intelligent-Tiering
 - Budget: $125 USD per month for S3 in `us-west-2`
 - Application profile: `photo-manager`, assuming the `photo-manager-local` role
+- Derivative worker: `photo-manager-derivative-worker`, two concurrent 2 GB Lambda invocations
 
 The bucket has `DeletionPolicy: Retain`; deleting the stack does not delete the archive. The application role can list, upload, and download archive objects but cannot delete them.
+
+## Deploy image processing
+
+```bash
+AWS_PROFILE=default AWS_REGION=us-west-2 ./infra/aws/deploy_derivatives.sh
+```
+
+Use the printed queue URL as `PHOTO_DERIVATIVE_QUEUE_URL`, then run
+`photo-manager derivatives-backfill` once. New backups enqueue automatically.
 
 ## Add budget email notifications
 

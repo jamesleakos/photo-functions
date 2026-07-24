@@ -36,6 +36,7 @@ class Settings:
     variant_confirm_threshold: float
     cloud_catalog_sync: bool = False
     hosted_gallery: bool = False
+    derivative_queue_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -63,6 +64,7 @@ class Settings:
             ),
             cloud_catalog_sync=_bool_env("PHOTO_CLOUD_CATALOG_SYNC"),
             hosted_gallery=_bool_env("PHOTO_HOSTED_GALLERY"),
+            derivative_queue_url=os.environ.get("PHOTO_DERIVATIVE_QUEUE_URL") or None,
         )
         settings.validate()
         return settings

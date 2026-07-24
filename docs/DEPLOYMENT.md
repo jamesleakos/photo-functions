@@ -25,6 +25,7 @@ The repository includes a native CloudFormation stack at `infra/aws/storage.yaml
 - a lifecycle transition into S3 Intelligent-Tiering;
 - cleanup of incomplete multipart uploads and noncurrent versions;
 - a least-privilege local role without object deletion permission; and
+- durable derivative and dead-letter queues;
 - a region- and service-filtered monthly AWS Budget.
 
 Deploy or update it with:
@@ -38,6 +39,23 @@ PHOTO_MANAGER_BUDGET_EMAIL=you@example.com \
 ```
 
 `PHOTO_MANAGER_BUDGET_EMAIL` is optional. CloudFormation updates the existing stack safely on later runs.
+
+Deploy the isolated image worker after the storage stack:
+
+```bash
+AWS_PROFILE=default AWS_REGION=us-west-2 ./infra/aws/deploy_derivatives.sh
+```
+
+The script packages Pillow, HEIF, and RAW support for Lambda, deploys a two-concurrent-job worker,
+and prints `PHOTO_DERIVATIVE_QUEUE_URL`. Add that URL to both the local and hosted configurations,
+then queue any existing archive images once:
+
+```bash
+photo-manager derivatives-backfill
+```
+
+Jobs are content-addressed and idempotent. Existing derivatives are skipped, failures are retried
+five times, and exhausted jobs are retained in the dead-letter queue for 14 days.
 
 For every provider:
 
@@ -70,6 +88,7 @@ PHOTO_S3_REGION=your-region
 PHOTO_S3_ENDPOINT_URL=your-provider-endpoint-or-empty-for-aws
 PHOTO_AUTH_USERNAME=your-username
 PHOTO_AUTH_PASSWORD=a-long-random-password
+PHOTO_DERIVATIVE_QUEUE_URL=your-worker-queue-url
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 ```
@@ -78,12 +97,13 @@ Put TLS in front of the container. Basic authentication is a deployment floor, n
 
 ## Render hosted gallery
 
-The included `render.yaml` creates an authenticated gallery on Render's lowest-cost always-on
-Starter web instance in the Oregon region.
+The included `render.yaml` creates an authenticated gallery on a Render Standard instance in the
+Oregon region.
 Hosted gallery mode is intentionally stateless: it restores `metadata/catalog-latest.db` from
 S3 on a cold start, uploads a fresh catalog snapshot after every tag, magazine, or duplicate
-decision, and stores generated thumbnails under `photo-manager/thumbnails/`. Browser uploads,
-filesystem scans, and backup runs are disabled on the hosted instance.
+decision, redirects cached thumbnails and previews directly to S3, and sends missing derivatives
+to the isolated AWS worker. Browser uploads, filesystem scans, and backup runs are disabled on the
+hosted instance.
 
 Set these secret environment variables in Render when the Blueprint is created:
 
@@ -95,10 +115,9 @@ AWS_SECRET_ACCESS_KEY=the-hosted-gallery-secret
 ```
 
 Use the dedicated `photo-manager-render-gallery` IAM user created by the storage stack. It can
-list and read archive objects, and can write only the catalog snapshot and thumbnail cache; it
-cannot delete or replace archive originals. Bucket listing lets S3 distinguish a missing cached
-thumbnail (404) from a forbidden object (403). Its filesystem is ephemeral by design; S3 remains
-the authoritative store.
+list and read archive objects, write the catalog snapshot and derivative cache, and send derivative
+jobs; it cannot delete or replace archive originals. Its filesystem is ephemeral by design; S3
+remains the authoritative store.
 
 ## Restore
 

@@ -25,6 +25,7 @@ def settings(tmp_path: Path) -> Settings:
         auth_password=None,
         variant_suggest_threshold=0.72,
         variant_confirm_threshold=0.90,
+        derivative_queue_url=None,
     )
     value.ensure_directories()
     return value

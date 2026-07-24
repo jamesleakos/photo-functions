@@ -6,6 +6,7 @@ from PIL import Image
 
 from photo_manager.web.app import create_app
 from photo_manager.web import app as web_app
+from photo_manager.storage import thumbnail_key
 
 
 def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
@@ -61,9 +62,10 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
         json={"flag": "not_included"},
     )
     assert excluded.status_code == 200
-    assert client.get("/api/photos", params={"flag": "not_included"}).json()[0][
-        "editorial_flag"
-    ] == "not_included"
+    assert (
+        client.get("/api/photos", params={"flag": "not_included"}).json()[0]["editorial_flag"]
+        == "not_included"
+    )
     assert client.put(f"/api/photos/{catalog_id}/flag", json={"flag": None}).status_code == 200
 
     index = client.get("/")
@@ -125,15 +127,38 @@ def test_container_memory_status_reads_cgroup_files(tmp_path):
     usage.write_text("450")
     limit.write_text("500")
 
-    status = web_app._container_memory_status(((usage, limit),))
+    status = web_app._container_memory_status(((usage, limit),), ())
 
     assert status == {
         "available": True,
         "used_bytes": 450,
+        "working_bytes": 450,
+        "reclaimable_bytes": 0,
+        "anonymous_bytes": None,
+        "file_bytes": None,
         "limit_bytes": 500,
         "usage_ratio": 0.9,
+        "total_usage_ratio": 0.9,
         "warning": True,
     }
+
+
+def test_container_memory_warning_excludes_reclaimable_file_cache(tmp_path):
+    usage = tmp_path / "memory.current"
+    limit = tmp_path / "memory.max"
+    stats = tmp_path / "memory.stat"
+    usage.write_text("900")
+    limit.write_text("1000")
+    stats.write_text("anon 150\nfile 740\ninactive_file 700\n")
+
+    status = web_app._container_memory_status(((usage, limit),), (stats,))
+
+    assert status["used_bytes"] == 900
+    assert status["working_bytes"] == 200
+    assert status["reclaimable_bytes"] == 700
+    assert status["usage_ratio"] == 0.2
+    assert status["total_usage_ratio"] == 0.9
+    assert status["warning"] is False
 
 
 def test_photo_endpoint_sorts_by_capture_date(settings, tmp_path):
@@ -296,3 +321,62 @@ def test_hosted_gallery_disables_imports_and_backup(settings):
     assert client.get("/api/config").json() == {"hosted_gallery": True}
     assert client.post("/api/imports/scan", json={"path": "/tmp"}).status_code == 403
     assert client.post("/api/backups/run").status_code == 403
+
+
+def test_hosted_gallery_queues_missing_derivatives_and_redirects_cached_ones(
+    monkeypatch, tmp_path, settings
+):
+    class FakeStorage:
+        def __init__(self):
+            self.existing = set()
+
+        def exists(self, key):
+            return key in self.existing
+
+        def presigned_url(self, key, expires_seconds=900):
+            return f"https://archive.example/{key}"
+
+    class FakeDispatcher:
+        enabled = True
+
+        def __init__(self):
+            self.queued = []
+
+        def enqueue(self, photo):
+            self.queued.append(photo["sha256"])
+
+    storage = FakeStorage()
+    dispatcher = FakeDispatcher()
+    monkeypatch.setattr(web_app, "build_storage", lambda _: storage)
+    monkeypatch.setattr(web_app, "DerivativeDispatcher", lambda _: dispatcher)
+    hosted = replace(
+        settings,
+        hosted_gallery=True,
+        storage_backend="s3",
+        s3_bucket="archive",
+        derivative_queue_url="https://sqs.example/derivatives",
+    )
+    image_path = tmp_path / "queued.jpg"
+    Image.new("RGB", (640, 480), "#b8472d").save(image_path)
+    app = create_app(hosted)
+    app.state.catalog.ingest_file(image_path, "camera")
+    photo = app.state.catalog.get_photo(1)
+    app.state.catalog.record_backup(
+        1,
+        f"photo-manager/originals/{photo['sha256'][:2]}/{photo['sha256']}.jpg",
+        "uploaded",
+    )
+    photo = app.state.catalog.get_photo(1)
+    client = TestClient(app)
+
+    pending = client.get("/api/photos/1/thumbnail")
+
+    assert pending.status_code == 202
+    assert dispatcher.queued == [photo["sha256"]]
+
+    key = thumbnail_key(hosted, photo)
+    storage.existing.add(key)
+    cached = client.get("/api/photos/1/thumbnail", follow_redirects=False)
+
+    assert cached.status_code == 307
+    assert cached.headers["location"] == f"https://archive.example/{key}"

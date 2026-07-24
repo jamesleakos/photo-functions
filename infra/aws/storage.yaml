@@ -82,6 +82,30 @@ Resources:
               Bool:
                 "aws:SecureTransport": false
 
+  DerivativeDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: photo-manager-derivatives-dead-letter
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: project
+          Value: photo-manager
+
+  DerivativeQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: photo-manager-derivatives
+      MessageRetentionPeriod: 1209600
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DerivativeDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: project
+          Value: photo-manager
+
   LocalApplicationRole:
     Type: AWS::IAM::Role
     Properties:
@@ -116,6 +140,10 @@ Resources:
                   - "s3:ListMultipartUploadParts"
                   - "s3:PutObject"
                 Resource: !Sub "${ArchiveBucket.Arn}/*"
+              - Sid: QueuePhotoDerivatives
+                Effect: Allow
+                Action: "sqs:SendMessage"
+                Resource: !GetAtt DerivativeQueue.Arn
       Tags:
         - Key: project
           Value: photo-manager
@@ -150,6 +178,10 @@ Resources:
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/metadata/catalog-latest.db"
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/thumbnails/*"
                   - !Sub "${ArchiveBucket.Arn}/photo-manager/previews/*"
+              - Sid: QueuePhotoDerivatives
+                Effect: Allow
+                Action: "sqs:SendMessage"
+                Resource: !GetAtt DerivativeQueue.Arn
       Tags:
         - Key: project
           Value: photo-manager
@@ -204,3 +236,9 @@ Outputs:
   MonthlyBudgetName:
     Description: AWS Budget tracking S3 costs in us-west-2
     Value: !Ref StorageBudget
+  DerivativeQueueUrl:
+    Description: Queue used by local backup and the hosted gallery for image derivatives
+    Value: !Ref DerivativeQueue
+  DerivativeQueueArn:
+    Description: ARN of the image derivative queue
+    Value: !GetAtt DerivativeQueue.Arn

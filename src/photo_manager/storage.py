@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 
 from .catalog import Catalog, sha256_file
 from .config import Settings
+from .derivatives import DerivativeDispatcher
 
 
 @dataclass
@@ -26,6 +27,8 @@ class StorageBackend(Protocol):
     def download(self, key: str, destination: Path) -> None: ...
 
     def presigned_url(self, key: str, expires_seconds: int = 900) -> str | None: ...
+
+    def exists(self, key: str) -> bool: ...
 
 
 class LocalStorage:
@@ -58,6 +61,9 @@ class LocalStorage:
     def presigned_url(self, key: str, expires_seconds: int = 900) -> str | None:
         return None
 
+    def exists(self, key: str) -> bool:
+        return (self.root / key).exists()
+
 
 class S3Storage:
     name = "s3"
@@ -82,6 +88,13 @@ class S3Storage:
                 raise
 
         extra_args: dict[str, object] = {"Metadata": {"sha256": sha256}}
+        if source.suffix.lower() in {".jpg", ".jpeg"}:
+            extra_args.update(
+                {
+                    "ContentType": "image/jpeg",
+                    "CacheControl": "private, max-age=31536000, immutable",
+                }
+            )
         if self.storage_class:
             extra_args["StorageClass"] = self.storage_class
         self.client.upload_file(str(source), self.bucket, key, ExtraArgs=extra_args)
@@ -98,6 +111,16 @@ class S3Storage:
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_seconds,
         )
+
+    def exists(self, key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError as error:
+            code = str(error.response.get("Error", {}).get("Code", ""))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
 
 
 def build_storage(settings: Settings) -> StorageBackend:
@@ -168,6 +191,7 @@ class BackupService:
         self.catalog = catalog
         self.storage = storage
         self.settings = settings
+        self.derivatives = DerivativeDispatcher(settings)
 
     def run(self, workers: int = 4) -> BackupReport:
         candidates = self.catalog.backup_candidates()
@@ -182,6 +206,15 @@ class BackupService:
             try:
                 stored = self.storage.put(path, key, photo["sha256"])
                 self.catalog.record_backup(photo["id"], stored.key, "uploaded", stored.etag)
+                if photo["media_type"].startswith("image/") and self.derivatives.enabled:
+                    queued_photo = dict(photo)
+                    queued_photo["object_key"] = stored.key
+                    try:
+                        self.derivatives.enqueue(queued_photo)
+                    except Exception:
+                        # The original is safely backed up. A hosted gallery request or a
+                        # later backfill can retry this optional derivative job.
+                        pass
                 return "uploaded", None
             except Exception as error:
                 self.catalog.record_backup(photo["id"], key, "failed", error=str(error))

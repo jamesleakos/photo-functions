@@ -13,7 +13,8 @@ The original one-off scripts remain in `src/` for compatibility. New work lives 
 - High-resolution master recommendation with side-by-side review for ambiguous matches
 - Content-addressed, checksum-verified backup to a local archive or any S3-compatible provider
 - Consistent catalog snapshot on every backup, protecting editorial decisions too
-- Browser gallery, original download, thumbnails, editorial flags, combined filters, uploads, and backup controls
+- Browser gallery, original download, editorial flags, combined filters, uploads, and backup controls
+- Isolated AWS Lambda thumbnail/preview generation with durable SQS retries
 - Optional HTTP Basic authentication and a Docker image for deployment
 
 The app never deletes source photos. Confirmed lower-resolution variants are excluded from future backup, but existing cloud objects are not automatically pruned.
@@ -78,6 +79,8 @@ photo-manager backup
 ```
 
 Backup is idempotent. Object keys are derived from SHA-256 content hashes, every upload is verified, and a consistent `catalog-latest.db` snapshot is stored alongside the photos.
+When `PHOTO_DERIVATIVE_QUEUE_URL` is configured, each new image also queues browser-ready
+derivatives without making the backup wait for image conversion.
 
 ## Cloud storage
 
@@ -108,11 +111,12 @@ these credentials on a normal sign-in page and keeps the browser signed in for 3
 
 ## Deploy the hosted gallery
 
-`render.yaml` defines a Render Starter service—the least expensive instance that stays running—
-that restores the catalog from S3 and persists every tagging decision back to S3. Set the four
+`render.yaml` defines a Render Standard service that restores the catalog from S3 and persists
+every tagging decision back to S3. Set the four
 prompted secrets—gallery username/password and the dedicated hosted-gallery AWS access key—and
 deploy the Blueprint. Imports and backup controls are disabled in hosted mode; camera and iPhone
-ingestion remain on the Mac.
+ingestion remain on the Mac. The hosted app serves cached derivatives directly from S3 and queues
+missing ones to the isolated Lambda worker, so RAW decoding cannot exhaust the web service.
 
 See [deployment and storage notes](docs/DEPLOYMENT.md#render-hosted-gallery) for the IAM boundary,
 cold-start behavior, and restore model.

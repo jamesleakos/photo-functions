@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Isolated, event-driven thumbnail and preview generation for Photo Manager
+
+Parameters:
+  ArchiveBucketName:
+    Type: String
+  ArchivePrefix:
+    Type: String
+    Default: photo-manager
+  DerivativeQueueArn:
+    Type: String
+  LambdaCodeKey:
+    Type: String
+
+Resources:
+  DerivativeWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: photo-manager-derivative-worker
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+      Policies:
+        - PolicyName: photo-manager-derivative-object-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CheckDerivativeCache
+                Effect: Allow
+                Action: "s3:ListBucket"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArchiveBucketName}"
+                Condition:
+                  StringLike:
+                    "s3:prefix":
+                      - !Sub "${ArchivePrefix}/thumbnails/*"
+                      - !Sub "${ArchivePrefix}/previews/*"
+              - Sid: ReadOriginals
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${ArchiveBucketName}/${ArchivePrefix}/originals/*"
+              - Sid: ReadWriteDerivatives
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArchiveBucketName}/${ArchivePrefix}/thumbnails/*"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArchiveBucketName}/${ArchivePrefix}/previews/*"
+      Tags:
+        - Key: project
+          Value: photo-manager
+
+  DerivativeWorker:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: photo-manager-derivative-worker
+      Description: Generates browser thumbnails and previews outside the Render web process
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Handler: handler.lambda_handler
+      Role: !GetAtt DerivativeWorkerRole.Arn
+      Code:
+        S3Bucket: !Ref ArchiveBucketName
+        S3Key: !Ref LambdaCodeKey
+      MemorySize: 2048
+      Timeout: 300
+      ReservedConcurrentExecutions: 2
+      EphemeralStorage:
+        Size: 1024
+      Environment:
+        Variables:
+          PHOTO_ARCHIVE_BUCKET: !Ref ArchiveBucketName
+          PHOTO_ARCHIVE_PREFIX: !Ref ArchivePrefix
+      Tags:
+        - Key: project
+          Value: photo-manager
+
+  DerivativeQueueMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref DerivativeQueueArn
+      FunctionName: !Ref DerivativeWorker
+      BatchSize: 1
+      Enabled: true
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+Outputs:
+  DerivativeWorkerName:
+    Value: !Ref DerivativeWorker

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from .catalog import Catalog
 from .config import Settings
 from .database import Database
+from .derivatives import DerivativeDispatcher
 from .iphone import OSXPhotosUnavailable, archive_favorites_year, sync_favorites
 from .storage import BackupService, build_storage
 
@@ -109,6 +110,20 @@ def cmd_stats(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_derivatives_backfill(args: argparse.Namespace) -> int:
+    settings, catalog = build_catalog()
+    dispatcher = DerivativeDispatcher(settings)
+    if not dispatcher.enabled:
+        print("Set PHOTO_DERIVATIVE_QUEUE_URL before queueing derivatives.", file=sys.stderr)
+        return 2
+    candidates = catalog.derivative_candidates()
+    if args.limit is not None:
+        candidates = candidates[: args.limit]
+    queued = dispatcher.enqueue_many(candidates)
+    print(json.dumps({"eligible": len(candidates), "queued": queued}, indent=2))
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     # The web app owns catalog initialization. In hosted mode it must be able to
     # restore the S3 snapshot before SQLite creates an empty database file.
@@ -172,6 +187,13 @@ def parser() -> argparse.ArgumentParser:
 
     stats = commands.add_parser("stats", help="Show catalog and backup totals")
     stats.set_defaults(func=cmd_stats)
+
+    derivatives = commands.add_parser(
+        "derivatives-backfill",
+        help="Queue thumbnails and browser previews for all backed-up photos",
+    )
+    derivatives.add_argument("--limit", type=int)
+    derivatives.set_defaults(func=cmd_derivatives_backfill)
 
     serve = commands.add_parser("serve", help="Run the browser app locally or on a server")
     serve.add_argument("--host", default="127.0.0.1")

@@ -1,6 +1,7 @@
 const state = {
   photos: [],
   groups: [],
+  duplicatesLoaded: false,
   offset: 0,
   pageSize: 72,
   hosted: false,
@@ -29,12 +30,35 @@ const viewerZoom = {
 const VIEWER_MIN_SCALE = 1;
 const VIEWER_MAX_SCALE = 5;
 const VIEWER_DOUBLE_TAP_SCALE = 3;
+const DERIVATIVE_RETRY_LIMIT = 40;
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${(bytes / Math.pow(1024, index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
+}
+
+function retryDerivativeImage(image) {
+  const endpoint = image.dataset.derivativeUrl;
+  if (!endpoint || image.dataset.derivativeRetryScheduled === "true") return;
+  const attempt = Number(image.dataset.derivativeAttempt || 0) + 1;
+  image.dataset.derivativeAttempt = String(attempt);
+  image.src = "/static/photo-pending.svg";
+  if (attempt > DERIVATIVE_RETRY_LIMIT) return;
+  image.dataset.derivativeRetryScheduled = "true";
+  const delay = Math.min(15000, 1000 * Math.pow(1.7, attempt - 1));
+  setTimeout(() => {
+    if (!image.isConnected) return;
+    image.dataset.derivativeRetryScheduled = "false";
+    image.src = `${endpoint}?attempt=${attempt}`;
+  }, delay);
+}
+
+function derivativeImageLoaded(image) {
+  if (image.currentSrc.includes("/static/photo-pending.svg")) return;
+  image.dataset.derivativeAttempt = "0";
+  image.dataset.derivativeRetryScheduled = "false";
 }
 
 function showToast(message) {
@@ -65,8 +89,13 @@ function updateMemoryAlert(memory, warningRatio = 0.8) {
   $("#memory-alert-title").textContent = level === "critical"
     ? "Render memory is nearly full"
     : "Render memory is running high";
+  const workingBytes = memory.working_bytes ?? memory.used_bytes;
+  const reclaimableBytes = Number(memory.reclaimable_bytes || 0);
+  const cacheDetail = reclaimableBytes
+    ? ` ${formatBytes(reclaimableBytes)} of additional file cache is reclaimable.`
+    : "";
   $("#memory-alert-detail").textContent =
-    `${formatBytes(memory.used_bytes)} of ${formatBytes(memory.limit_bytes)} used (${percentage}%).`;
+    `${formatBytes(workingBytes)} of ${formatBytes(memory.limit_bytes)} actively used (${percentage}%).${cacheDetail}`;
   alert.classList.toggle("critical", level === "critical");
   alert.classList.remove("hidden");
 }
@@ -161,7 +190,10 @@ function photoCard(photo) {
   return `<article class="photo-card ${activeFlag ? `has-flag flag-card-${activeFlag.replace("_", "-")}` : ""}" data-photo-id="${photo.id}">
     <button class="photo-image" type="button" onclick="openPhotoViewer(${photo.id})"
       aria-label="View ${escapeHtml(photo.filename)} full screen" title="${escapeHtml(photo.filename)}">
-      <img loading="lazy" src="/api/photos/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename)}">
+      <img loading="lazy" src="/api/photos/${photo.id}/thumbnail"
+        data-derivative-url="/api/photos/${photo.id}/thumbnail"
+        onerror="retryDerivativeImage(this)" onload="derivativeImageLoaded(this)"
+        alt="${escapeHtml(photo.filename)}">
       <span class="source-label">${escapeHtml(sourceAndDate)}</span>
       ${photo.favorite ? '<span class="favorite-mark" title="Favourited">♥</span>' : ""}
       ${editorialBadge(photo)}
@@ -474,22 +506,13 @@ function updatePhotoViewer() {
   resetViewerZoom();
   image.alt = photo.filename;
   image.dataset.quality = "thumbnail";
-  image.src = `/api/photos/${photo.id}/thumbnail`;
+  image.dataset.derivativeUrl = `/api/photos/${photo.id}/thumbnail`;
+  image.dataset.derivativeAttempt = "0";
+  image.src = image.dataset.derivativeUrl;
   const isPhoto = String(photo.media_type || "").startsWith("image/");
   if (isPhoto) {
     showViewerQuality("Loading high quality…");
-    const highQualityImage = new Image();
-    highQualityImage.onload = () => {
-      if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
-      image.src = highQualityImage.src;
-      image.dataset.quality = "preview";
-      showViewerQuality("High quality", 1400);
-    };
-    highQualityImage.onerror = () => {
-      if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
-      showViewerQuality("High quality unavailable", 2400);
-    };
-    highQualityImage.src = `/api/photos/${photo.id}/preview`;
+    loadViewerPreview(photo, requestId);
   } else {
     $("#viewer-quality").classList.add("hidden");
   }
@@ -497,6 +520,33 @@ function updatePhotoViewer() {
   $("#viewer-prev").disabled = !hasMultiplePhotos;
   $("#viewer-next").disabled = !hasMultiplePhotos;
   $("#viewer-flag-controls").innerHTML = flagButtons(photo, "viewer");
+}
+
+function loadViewerPreview(photo, requestId, attempt = 0) {
+  const highQualityImage = new Image();
+  highQualityImage.onload = () => {
+    if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
+    const image = $("#viewer-image");
+    image.src = highQualityImage.src;
+    image.dataset.quality = "preview";
+    image.dataset.derivativeUrl = "";
+    showViewerQuality("High quality", 1400);
+  };
+  highQualityImage.onerror = () => {
+    if (requestId !== state.viewerImageRequest || state.viewerPhoto?.id !== photo.id) return;
+    if (attempt >= DERIVATIVE_RETRY_LIMIT) {
+      showViewerQuality("High quality unavailable", 2400);
+      return;
+    }
+    showViewerQuality("Preparing high quality…");
+    const delay = Math.min(10000, 1000 * Math.pow(1.6, attempt));
+    setTimeout(() => {
+      if (requestId === state.viewerImageRequest && state.viewerPhoto?.id === photo.id) {
+        loadViewerPreview(photo, requestId, attempt + 1);
+      }
+    }, delay);
+  };
+  highQualityImage.src = `/api/photos/${photo.id}/preview?attempt=${attempt}`;
 }
 
 function openPhotoViewer(photoId) {
@@ -662,7 +712,10 @@ function duplicateGroup(group) {
   const members = group.members.map(member => {
     const megapixels = member.width && member.height ? (member.width * member.height / 1e6).toFixed(1) : "?";
     return `<div class="duplicate-member ${member.is_preferred ? "selected" : ""}">
-      <img loading="lazy" src="/api/photos/${member.id}/thumbnail" alt="${escapeHtml(member.filename)}">
+      <img loading="lazy" src="/api/photos/${member.id}/thumbnail"
+        data-derivative-url="/api/photos/${member.id}/thumbnail"
+        onerror="retryDerivativeImage(this)" onload="derivativeImageLoaded(this)"
+        alt="${escapeHtml(member.filename)}">
       <label><input type="radio" name="preferred-${group.id}" value="${member.id}" ${member.is_preferred ? "checked" : ""}>
         <span><strong>${escapeHtml(member.filename)}</strong><br>${megapixels} MP · ${formatBytes(member.size_bytes)} ${member.is_preferred ? "· recommended" : ""}</span>
       </label>
@@ -683,6 +736,7 @@ async function loadDuplicates() {
   $("#duplicate-list").innerHTML = state.groups.map(duplicateGroup).join("");
   $("#empty-duplicates").classList.toggle("hidden", state.groups.length > 0);
   $("#duplicate-count").textContent = state.groups.length ? `(${state.groups.length})` : "";
+  state.duplicatesLoaded = true;
 }
 
 async function decideGroup(groupId, decision) {
@@ -732,7 +786,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#viewer-close").addEventListener("click", closePhotoViewer);
   $("#viewer-prev").addEventListener("click", () => movePhotoViewer(-1));
   $("#viewer-next").addEventListener("click", () => movePhotoViewer(1));
-  $("#viewer-image").addEventListener("load", () => applyViewerTransform());
+  $("#viewer-image").addEventListener("load", event => {
+    derivativeImageLoaded(event.currentTarget);
+    applyViewerTransform();
+  });
+  $("#viewer-image").addEventListener(
+    "error",
+    event => retryDerivativeImage(event.currentTarget),
+  );
   $("#viewer-stage").addEventListener("pointerdown", viewerPointerDown);
   $("#viewer-stage").addEventListener("pointermove", viewerPointerMove);
   $("#viewer-stage").addEventListener("pointerup", event => finishViewerPointer(event));
@@ -756,10 +817,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       movePhotoViewer(1);
     }
   });
-  document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", async () => {
     document.querySelectorAll(".tab").forEach(item => item.classList.toggle("active", item === tab));
     $("#library-view").classList.toggle("hidden", tab.dataset.view !== "library");
     $("#duplicates-view").classList.toggle("hidden", tab.dataset.view !== "duplicates");
+    if (tab.dataset.view === "duplicates" && !state.duplicatesLoaded) {
+      try { await loadDuplicates(); } catch (error) { showToast(error.message); }
+    }
   }));
   document.querySelectorAll('input[name="flag-filter"], input[name="source-filter"], input[name="media-filter"], #favorites-filter')
     .forEach(input => input.addEventListener("change", () => loadPhotos()));
@@ -784,7 +848,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     await Promise.all([
       loadStats(),
       loadPhotos(),
-      loadDuplicates(),
       loadOneOfGroupState(),
       checkResourceUsage(),
     ]);
@@ -796,3 +859,5 @@ document.addEventListener("DOMContentLoaded", async () => {
 window.setEditorialFlag = setEditorialFlag;
 window.openPhotoViewer = openPhotoViewer;
 window.decideGroup = decideGroup;
+window.retryDerivativeImage = retryDerivativeImage;
+window.derivativeImageLoaded = derivativeImageLoaded;

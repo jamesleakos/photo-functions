@@ -13,9 +13,7 @@ from .database import Database
 from .metadata import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS, MetadataExtractor, PhotoMetadata
 
 
-EDITORIAL_FLAGS = frozenset(
-    {"flagship", "include", "candidate", "one_of", "not_included"}
-)
+EDITORIAL_FLAGS = frozenset({"flagship", "include", "candidate", "one_of", "not_included"})
 
 
 @dataclass
@@ -544,9 +542,9 @@ class Catalog:
                         OR LOWER(sx.source) LIKE 'iphone-%')"""
                 )
             if not source_kinds:
-                source_kinds.append("LOWER(sx.source) IN ({})".format(
-                    ",".join("?" for _ in normalized_sources)
-                ))
+                source_kinds.append(
+                    "LOWER(sx.source) IN ({})".format(",".join("?" for _ in normalized_sources))
+                )
                 parameters.extend(sorted(normalized_sources))
             clauses.append(
                 f"""EXISTS (
@@ -622,9 +620,7 @@ class Catalog:
             flag_clauses: list[str] = []
             stored_flags = sorted(selected_flags & EDITORIAL_FLAGS)
             if stored_flags:
-                flag_clauses.append(
-                    f"ef.flag IN ({','.join('?' for _ in stored_flags)})"
-                )
+                flag_clauses.append(f"ef.flag IN ({','.join('?' for _ in stored_flags)})")
                 parameters.extend(stored_flags)
             if "unflagged" in selected_flags:
                 flag_clauses.append("ef.flag IS NULL")
@@ -789,9 +785,7 @@ class Catalog:
         if normalized and normalized not in EDITORIAL_FLAGS:
             raise ValueError("Invalid editorial flag")
         with self.database.transaction() as connection:
-            if not connection.execute(
-                "SELECT 1 FROM photos WHERE id = ?", (photo_id,)
-            ).fetchone():
+            if not connection.execute("SELECT 1 FROM photos WHERE id = ?", (photo_id,)).fetchone():
                 raise KeyError(photo_id)
             if normalized == "one_of":
                 group = connection.execute(
@@ -832,9 +826,7 @@ class Catalog:
                     (photo_id, normalized),
                 )
             else:
-                connection.execute(
-                    "DELETE FROM editorial_flags WHERE photo_id = ?", (photo_id,)
-                )
+                connection.execute("DELETE FROM editorial_flags WHERE photo_id = ?", (photo_id,))
             return self._current_one_of_group(connection)
 
     def finish_current_one_of_group(self) -> dict[str, Any]:
@@ -892,6 +884,20 @@ class Catalog:
                    WHERE (b.status IS NULL OR b.status != 'uploaded')
                    AND (vm.group_id IS NULL OR vg.review_status != 'confirmed'
                         OR vg.preferred_photo_id = p.id)
+                   ORDER BY p.id""",
+                (self.settings.storage_backend,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def derivative_candidates(self) -> list[dict[str, Any]]:
+        """Return backed-up images that can be processed without local originals."""
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """SELECT p.*, b.object_key
+                   FROM photos p
+                   JOIN backups b ON b.photo_id = p.id
+                     AND b.backend = ? AND b.status = 'uploaded'
+                   WHERE p.media_type LIKE 'image/%'
                    ORDER BY p.id""",
                 (self.settings.storage_backend,),
             ).fetchall()

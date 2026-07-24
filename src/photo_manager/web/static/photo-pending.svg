@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 540" role="img" aria-label="Preparing photo">
+  <rect width="720" height="540" fill="#252824"/>
+  <path d="M0 430 185 250l118 115 102-99 315 274H0Z" fill="#353b34"/>
+  <circle cx="534" cy="155" r="55" fill="#465d3c"/>
+  <text x="360" y="490" fill="#d6d8d1" text-anchor="middle"
+    font-family="system-ui, sans-serif" font-size="23">Preparing photo…</text>
+</svg>

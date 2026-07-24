@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 from ..catalog import Catalog, sha256_file
 from ..config import Settings
 from ..database import Database
+from ..derivatives import DerivativeDispatcher
 from ..storage import (
     BackupService,
     build_storage,
@@ -89,10 +90,28 @@ CGROUP_MEMORY_FILES = (
         Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
     ),
 )
+CGROUP_MEMORY_STAT_FILES = (
+    Path("/sys/fs/cgroup/memory.stat"),
+    Path("/sys/fs/cgroup/memory/memory.stat"),
+)
+
+
+def _read_memory_stat(paths: tuple[Path, ...]) -> dict[str, int]:
+    for path in paths:
+        try:
+            values = {}
+            for line in path.read_text().splitlines():
+                key, value = line.split(maxsplit=1)
+                values[key] = int(value)
+            return values
+        except (OSError, ValueError):
+            continue
+    return {}
 
 
 def _container_memory_status(
     memory_files: tuple[tuple[Path, Path], ...] = CGROUP_MEMORY_FILES,
+    memory_stat_files: tuple[Path, ...] = CGROUP_MEMORY_STAT_FILES,
 ) -> dict[str, object]:
     for usage_path, limit_path in memory_files:
         try:
@@ -106,19 +125,36 @@ def _container_memory_status(
             continue
         if used_bytes < 0 or limit_bytes <= 0 or limit_bytes >= 2**60:
             continue
-        usage_ratio = used_bytes / limit_bytes
+        memory_stat = _read_memory_stat(memory_stat_files)
+        inactive_file = memory_stat.get(
+            "inactive_file",
+            memory_stat.get("total_inactive_file", 0),
+        )
+        reclaimable_bytes = min(max(inactive_file, 0), used_bytes)
+        working_bytes = max(0, used_bytes - reclaimable_bytes)
+        usage_ratio = working_bytes / limit_bytes
         return {
             "available": True,
             "used_bytes": used_bytes,
+            "working_bytes": working_bytes,
+            "reclaimable_bytes": reclaimable_bytes,
+            "anonymous_bytes": memory_stat.get("anon", memory_stat.get("total_rss")),
+            "file_bytes": memory_stat.get("file", memory_stat.get("total_cache")),
             "limit_bytes": limit_bytes,
             "usage_ratio": usage_ratio,
+            "total_usage_ratio": used_bytes / limit_bytes,
             "warning": usage_ratio >= MEMORY_WARNING_RATIO,
         }
     return {
         "available": False,
         "used_bytes": None,
+        "working_bytes": None,
+        "reclaimable_bytes": None,
+        "anonymous_bytes": None,
+        "file_bytes": None,
         "limit_bytes": None,
         "usage_ratio": None,
+        "total_usage_ratio": None,
         "warning": False,
     }
 
@@ -152,11 +188,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     settings.ensure_directories()
     storage = build_storage(settings)
+    derivative_dispatcher = DerivativeDispatcher(settings)
     if settings.cloud_catalog_sync and not settings.database_path.exists():
         restore_catalog_snapshot(storage, settings)
     catalog = Catalog(Database(settings.database_path), settings)
     web_root = Path(__file__).parent
     catalog_sync_lock = threading.Lock()
+    derivative_request_lock = threading.Lock()
+    derivative_request_times: dict[str, float] = {}
     # A full-resolution HEIC can occupy well over 100 MB while Pillow decodes it.
     # Serialize hosted generation so a fresh gallery page cannot exhaust a small
     # Render instance; local machines can retain modest parallelism.
@@ -172,10 +211,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             persist_catalog()
             return result
 
+    def request_derivatives(photo: dict) -> None:
+        digest = photo["sha256"]
+        now = time.monotonic()
+        with derivative_request_lock:
+            if now - derivative_request_times.get(digest, 0) < 60:
+                return
+            derivative_dispatcher.enqueue(photo)
+            derivative_request_times[digest] = now
+            if len(derivative_request_times) > 10_000:
+                cutoff = now - 3600
+                stale = [
+                    key
+                    for key, requested_at in derivative_request_times.items()
+                    if requested_at < cutoff
+                ]
+                for key in stale:
+                    derivative_request_times.pop(key, None)
+
     app = FastAPI(title="Photo Manager", version="0.1.0")
     app.state.settings = settings
     app.state.catalog = catalog
     app.state.storage = storage
+    app.state.derivative_dispatcher = derivative_dispatcher
     app.mount("/static", StaticFiles(directory=web_root / "static"), name="static")
 
     def valid_basic_auth(request: Request) -> bool:
@@ -233,9 +291,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         username: str = Form(...),
         password: str = Form(...),
     ) -> RedirectResponse:
-        valid = bool(settings.auth_username) and secrets.compare_digest(
-            username, settings.auth_username or ""
-        ) and secrets.compare_digest(password, settings.auth_password or "")
+        valid = (
+            bool(settings.auth_username)
+            and secrets.compare_digest(username, settings.auth_username or "")
+            and secrets.compare_digest(password, settings.auth_password or "")
+        )
         if not valid:
             return RedirectResponse("/login?error=1", status_code=303)
         response = RedirectResponse("/", status_code=303)
@@ -328,6 +388,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             storage.download(photo["object_key"], restored)
         return photo, restored
 
+    def hosted_derivative_response(photo: dict, key: str) -> Response | None:
+        if not (settings.hosted_gallery and derivative_dispatcher.enabled):
+            return None
+        if not photo.get("object_key"):
+            raise HTTPException(404, "No backed-up original is available for processing")
+        if storage.exists(key):
+            url = storage.presigned_url(key)
+            if url:
+                return RedirectResponse(
+                    url,
+                    status_code=307,
+                    headers={"Cache-Control": "private, max-age=600"},
+                )
+        try:
+            request_derivatives(photo)
+        except Exception as error:
+            raise HTTPException(503, f"Could not queue image processing: {error}") from error
+        return JSONResponse(
+            {"detail": "Image processing queued"},
+            status_code=202,
+            headers={"Cache-Control": "no-store", "Retry-After": "2"},
+        )
+
     @app.get("/api/photos/{photo_id}/thumbnail")
     def thumbnail(photo_id: int):
         photo = catalog.get_photo(photo_id)
@@ -346,6 +429,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 media_type="image/svg+xml",
             )
+        queued_or_cached = hosted_derivative_response(photo, thumbnail_key(settings, photo))
+        if queued_or_cached is not None:
+            return queued_or_cached
         destination = settings.thumbnail_dir / f"{photo['sha256']}.jpg"
         if destination.exists():
             return FileResponse(destination, media_type="image/jpeg")
@@ -408,6 +494,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Photo not found")
         if not photo["media_type"].startswith("image/"):
             raise HTTPException(415, "High-resolution previews are available for photos only")
+        queued_or_cached = hosted_derivative_response(photo, preview_key(settings, photo))
+        if queued_or_cached is not None:
+            return queued_or_cached
         temporary_preview = settings.hosted_gallery and settings.cloud_catalog_sync
         preview_name = (
             f"{photo['sha256']}-{uuid.uuid4().hex}.jpg"
@@ -418,9 +507,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         def preview_response() -> FileResponse:
             cleanup = (
-                BackgroundTask(destination.unlink, missing_ok=True)
-                if temporary_preview
-                else None
+                BackgroundTask(destination.unlink, missing_ok=True) if temporary_preview else None
             )
             return FileResponse(
                 destination,
@@ -499,8 +586,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if len(update.items) > 500:
             raise HTTPException(400, "At most 500 capture dates can be updated at once")
         values = {
-            item.photo_id: item.captured_at.isoformat(timespec="seconds")
-            for item in update.items
+            item.photo_id: item.captured_at.isoformat(timespec="seconds") for item in update.items
         }
         try:
             hosted_mutation(lambda: catalog.set_capture_dates(values))
@@ -509,13 +595,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "updated", "updated": len(values)}
 
     @app.put("/api/photos/{photo_id}/flag")
-    def editorial_flag(
-        photo_id: int, update: EditorialFlagUpdate
-    ) -> dict:
+    def editorial_flag(photo_id: int, update: EditorialFlagUpdate) -> dict:
         try:
-            group = hosted_mutation(
-                lambda: catalog.set_editorial_flag(photo_id, update.flag)
-            )
+            group = hosted_mutation(lambda: catalog.set_editorial_flag(photo_id, update.flag))
         except KeyError as error:
             raise HTTPException(404, "Photo not found") from error
         return {"status": "updated", "flag": update.flag, "one_of_group": group}
