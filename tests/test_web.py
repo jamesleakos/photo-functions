@@ -62,6 +62,7 @@ def test_gallery_magazine_and_thumbnail_endpoints(tmp_path, settings):
     assert "Not included" in index.text
     assert 'name="media-filter"' in index.text
     assert 'id="date-sort"' in index.text
+    assert '<option value="asc" selected>Oldest first</option>' in index.text
     assert 'id="photo-viewer"' in index.text
     assert 'id="viewer-flag-controls"' in index.text
     assert 'id="viewer-prev"' in index.text
