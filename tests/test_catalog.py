@@ -280,6 +280,48 @@ def test_photo_date_order_keeps_missing_capture_dates_last(tmp_path, settings):
         catalog.list_photos(date_order="sideways")
 
 
+def test_capture_dates_are_updated_atomically(tmp_path, settings):
+    first = tmp_path / "first.jpg"
+    second = tmp_path / "second.jpg"
+    first.write_bytes(b"first missing date")
+    second.write_bytes(b"second missing date")
+    extractor = FixedExtractor(
+        {
+            first.name: metadata(1200, 900, "0000000000000000", None),
+            second.name: metadata(1200, 900, "5555555555555555", None),
+        }
+    )
+    catalog = Catalog(Database(settings.database_path), settings, extractor)
+    catalog.ingest_file(first, "iphone-favorite", favorite=True)
+    catalog.ingest_file(second, "iphone-favorite", favorite=True)
+    by_name = {item["filename"]: item for item in catalog.list_photos()}
+
+    updated = catalog.set_capture_dates(
+        {
+            by_name[first.name]["id"]: "2024-01-02T09:30:00",
+            by_name[second.name]["id"]: "2024-06-15T14:45:00",
+        }
+    )
+
+    assert updated == 2
+    assert {
+        item["filename"]: item["captured_at"] for item in catalog.list_photos()
+    } == {
+        first.name: "2024-01-02T09:30:00",
+        second.name: "2024-06-15T14:45:00",
+    }
+    with pytest.raises(ValueError):
+        catalog.set_capture_dates({by_name[first.name]["id"]: "not-a-date"})
+    with pytest.raises(KeyError):
+        catalog.set_capture_dates(
+            {
+                by_name[first.name]["id"]: "2025-01-01T00:00:00",
+                9999: "2025-01-01T00:00:00",
+            }
+        )
+    assert catalog.get_photo(by_name[first.name]["id"])["captured_at"] == "2024-01-02T09:30:00"
+
+
 def test_photo_and_video_filters_allow_either_or_both(tmp_path, settings):
     photo = tmp_path / "still.jpg"
     video = tmp_path / "clip.mov"

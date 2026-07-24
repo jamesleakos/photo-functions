@@ -466,6 +466,36 @@ class Catalog:
             )
         return len(locations)
 
+    def set_capture_dates(self, updates: dict[int, str]) -> int:
+        """Set authoritative capture dates atomically for an explicit set of photos."""
+        normalized: dict[int, str] = {}
+        for photo_id, captured_at in updates.items():
+            try:
+                parsed = datetime.fromisoformat(captured_at)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Invalid capture date for photo {photo_id}") from error
+            normalized[int(photo_id)] = parsed.isoformat(timespec="seconds")
+        if not normalized:
+            return 0
+
+        photo_ids = sorted(normalized)
+        placeholders = ",".join("?" for _ in photo_ids)
+        with self.database.transaction() as connection:
+            existing = {
+                row["id"]
+                for row in connection.execute(
+                    f"SELECT id FROM photos WHERE id IN ({placeholders})", photo_ids
+                ).fetchall()
+            }
+            missing = set(photo_ids) - existing
+            if missing:
+                raise KeyError(f"Photos not found: {', '.join(map(str, sorted(missing)))}")
+            connection.executemany(
+                "UPDATE photos SET captured_at = ? WHERE id = ?",
+                [(normalized[photo_id], photo_id) for photo_id in photo_ids],
+            )
+        return len(normalized)
+
     def list_photos(
         self,
         *,

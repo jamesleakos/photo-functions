@@ -105,6 +105,43 @@ def test_photo_endpoint_sorts_by_capture_date(settings, tmp_path):
     assert client.get("/api/photos", params={"date_order": "sideways"}).status_code == 422
 
 
+def test_capture_dates_can_be_backfilled_in_one_request(tmp_path, settings):
+    image_path = tmp_path / "missing-date.jpg"
+    Image.new("RGB", (640, 480), "#b8472d").save(image_path)
+    app = create_app(settings)
+    app.state.catalog.ingest_file(image_path, "iphone-favorite", favorite=True)
+    client = TestClient(app)
+    photo_id = client.get("/api/photos").json()[0]["id"]
+
+    response = client.put(
+        "/api/photos/capture-dates",
+        json={
+            "items": [
+                {
+                    "photo_id": photo_id,
+                    "captured_at": "2024-05-06T14:30:00",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["updated"] == 1
+    assert client.get("/api/photos").json()[0]["captured_at"] == "2024-05-06T14:30:00"
+    missing = client.put(
+        "/api/photos/capture-dates",
+        json={
+            "items": [
+                {
+                    "photo_id": 9999,
+                    "captured_at": "2024-05-06T14:30:00",
+                }
+            ]
+        },
+    )
+    assert missing.status_code == 404
+
+
 def test_video_gets_placeholder_thumbnail(tmp_path, settings):
     video_path = tmp_path / "clip.mov"
     video_path.write_bytes(b"not a real movie, but valid catalog test input")

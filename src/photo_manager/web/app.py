@@ -9,7 +9,7 @@ import shutil
 import threading
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -52,6 +52,15 @@ DateOrder = Literal["asc", "desc"]
 
 class EditorialFlagUpdate(BaseModel):
     flag: EditorialFlag | None
+
+
+class CaptureDateItem(BaseModel):
+    photo_id: int
+    captured_at: datetime
+
+
+class CaptureDatesUpdate(BaseModel):
+    items: list[CaptureDateItem]
 
 
 class VariantDecision(BaseModel):
@@ -359,6 +368,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Photo not found")
         hosted_mutation(lambda: catalog.set_tags(photo_id, update.tags))
         return {"status": "updated"}
+
+    @app.put("/api/photos/capture-dates")
+    def capture_dates(update: CaptureDatesUpdate) -> dict[str, int | str]:
+        if len(update.items) > 500:
+            raise HTTPException(400, "At most 500 capture dates can be updated at once")
+        values = {
+            item.photo_id: item.captured_at.isoformat(timespec="seconds")
+            for item in update.items
+        }
+        try:
+            hosted_mutation(lambda: catalog.set_capture_dates(values))
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"status": "updated", "updated": len(values)}
 
     @app.put("/api/photos/{photo_id}/flag")
     def editorial_flag(
